@@ -1,0 +1,104 @@
+{
+  "schema_version": "0.1.0",
+  "current_as_of": "2026-07-23",
+  "jurisdiction": "대한민국 국가계약법 적용 물품·용역",
+  "decision_policy": {
+    "PASS_WITH_CONTROLS": "법정 사유와 핵심 증빙이 입력상 충족되나 최종 결재·가격·자격 통제 필요",
+    "NEEDS_EVIDENCE": "사유 성립 가능성은 있으나 필수 증빙 또는 절차 누락",
+    "REJECT_GROUND": "금액 초과 또는 사유와 충돌하는 사실 존재",
+    "OUT_OF_SCOPE": "초기 규칙팩 범위 밖"
+  },
+  "small_amount": {
+    "legal_basis": "국가계약법 시행령 제26조제1항제5호가목 및 제30조",
+    "thresholds_krw_ex_vat": {
+      "general": 20000000,
+      "small_enterprise_or_small_business": 100000000,
+      "special_knowledge": 100000000,
+      "supported_enterprise": 100000000,
+      "youth_startup": 50000000,
+      "one_quote_general": 20000000,
+      "one_quote_supported_enterprise": 50000000
+    },
+    "notes": [
+      "추정가격은 부가가치세 제외 금액",
+      "2천만원 초과 소액수의는 원칙적으로 전자조달시스템을 이용한 견적 제출",
+      "여성기업·장애인기업·일정 사회적경제기업과의 계약은 5천만원 이하에서 1인 견적 가능",
+      "청년창업기업은 해당 소액수의 근거 범위에서 1인 견적 가능",
+      "동일 사업의 인위적 분할 여부 별도 점검"
+    ]
+  },
+  "sole_source": {
+    "legal_basis": "국가계약법 시행령 제26조제1항제2호",
+    "bases": {
+      "original_supplier_direct_service": {
+        "label": "제조·공급자의 직접 설치·조립·정비",
+        "legal_basis": "시행령 제26조제1항제2호바목",
+        "required_evidence": [
+          "original_supplier_proof",
+          "direct_service_necessity",
+          "objective_market_search"
+        ]
+      },
+      "compatibility": {
+        "label": "기조달 물품과의 호환성",
+        "legal_basis": "시행령 제26조제1항제2호사목",
+        "required_evidence": [
+          "installed_asset_spec",
+          "compatibility_evidence",
+          "objective_market_search",
+          "no_substitute_analysis"
+        ]
+      },
+      "patented_no_substitute": {
+        "label": "특허·실용신안·디자인등록 물품과 대체품 부재",
+        "legal_basis": "시행령 제26조제1항제2호아목",
+        "required_evidence": [
+          "registration_certificate",
+          "registration_validity",
+          "objective_market_search",
+          "no_substitute_analysis"
+        ]
+      },
+      "single_producer": {
+        "label": "생산자 또는 소지자 1인",
+        "legal_basis": "시행령 제26조제1항제2호자목",
+        "required_evidence": [
+          "single_producer_evidence",
+          "objective_market_search",
+          "objective_need_definition",
+          "no_substitute_analysis"
+        ]
+      },
+      "specific_technical_service": {
+        "label": "특정 기술·품질·경험·자격이 필요한 용역",
+        "legal_basis": "시행령 제26조제1항제2호차목",
+        "required_evidence": [
+          "unique_qualification_evidence",
+          "scope_necessity",
+          "alternative_experts_search"
+        ]
+      }
+    }
+  },
+  "urgent_security": {
+    "legal_basis": "국가계약법 시행령 제26조제1항제1호가목·나목",
+    "urgent_required_evidence": [
+      "unforeseeable_event_record",
+      "immediate_deadline_record",
+      "competition_time_infeasible",
+      "scope_limited_to_necessity"
+    ],
+    "security_required_evidence": [
+      "security_basis_record",
+      "disclosure_risk_analysis",
+      "scope_limited_to_security_need",
+      "supplier_security_safeguards"
+    ],
+    "disallowed_shortcuts": [
+      "연말 예산소진",
+      "통상적 행정지연",
+      "근거 없는 보안 표지",
+      "긴급 범위를 넘는 장기·대량 계약"
+    ]
+  }
+}

@@ -1,0 +1,231 @@
+{
+  "dataset": {
+    "source": "방위사업청 국내조달 계약정보 (공공데이터포털 data.go.kr)",
+    "rows_raw": 43072,
+    "rows_after_dedupe": 37595,
+    "dedupe_rule": "계약번호별 최종 차수만 사용",
+    "period": "2024-11-01 ~ 2025-12-31",
+    "military_share": 0.9777,
+    "sole_source_share": 0.7146
+  },
+  "threshold_consistency": {
+    "checked_contracts": 21659,
+    "over_cap": 191,
+    "over_cap_rate": 0.0088,
+    "margin_applied": 0.03,
+    "method": "계약금액/1.1을 추정가격 근사로 사용, 상한 대비 3% 초과 이탈만 집계",
+    "caveat": "공개 데이터에 추정가격 원본이 없어 근사치이며, 개별 건의 위법 여부를 단정하지 않고 담당자 확인이 필요한 후보로만 제시한다.",
+    "by_article": [
+      {
+        "article": "령26-1-5가(2)",
+        "description": "추정가격 2천만원 이하",
+        "cap_krw": 20000000,
+        "n": 17498,
+        "n_over_cap": 172,
+        "rate_over_cap": 0.0098,
+        "p99_est_price": 20399058,
+        "max_est_price": 2508545454
+      },
+      {
+        "article": "령26-1-5가(3)",
+        "description": "2천만원 초과 1억원 이하(소기업·소상공인)",
+        "cap_krw": 100000000,
+        "n": 3634,
+        "n_over_cap": 15,
+        "rate_over_cap": 0.0041,
+        "p99_est_price": 86937349,
+        "max_est_price": 1058434172
+      },
+      {
+        "article": "령26-1-5가(5)",
+        "description": "2천만원 초과 1억원 이하(여성기업 등)",
+        "cap_krw": 100000000,
+        "n": 356,
+        "n_over_cap": 1,
+        "rate_over_cap": 0.0028,
+        "p99_est_price": 76049563,
+        "max_est_price": 151705454
+      },
+      {
+        "article": "령26-1-5가(4)",
+        "description": "2천만원 초과 1억원 이하(특수지식)",
+        "cap_krw": 100000000,
+        "n": 154,
+        "n_over_cap": 2,
+        "rate_over_cap": 0.013,
+        "p99_est_price": 101946409,
+        "max_est_price": 227272727
+      },
+      {
+        "article": "령26-1-5가(6)",
+        "description": "5천만원 이하 임대차 등",
+        "cap_krw": 50000000,
+        "n": 17,
+        "n_over_cap": 1,
+        "rate_over_cap": 0.0588,
+        "p99_est_price": 105398205,
+        "max_est_price": 117119999
+      }
+    ]
+  },
+  "split_order": {
+    "population": 16884,
+    "flagged_contracts": 934,
+    "flagged_rate": 0.0553,
+    "groups": 346,
+    "groups_same_vendor": 74,
+    "params": {
+      "window_days": 60,
+      "name_similarity": 0.7,
+      "aggregate_cap_krw": 20000000,
+      "excluded": "조달청 위탁구매, 관급자재, 상한 초과 개별건"
+    },
+    "caveat": "합산 시 상한을 넘는 유사 발주 후보이며, 사업의 동일성 여부는 담당자 확인이 필요하다. 정당한 분리발주도 포함될 수 있다.",
+    "top_examples": [
+      {
+        "n_contracts": 8,
+        "sum_est_price": 109505454,
+        "span_days": 42,
+        "same_vendor": false,
+        "names": [
+          "'25년 117여단 전반기 작계훈련 전투식량 구매",
+          "'25년 118여단 전반기 작계훈련 전투식량 구매",
+          "119-1대대 전반기 작계훈련(1-1차) 전투식량 구매"
+        ]
+      },
+      {
+        "n_contracts": 6,
+        "sum_est_price": 88149509,
+        "span_days": 35,
+        "same_vendor": false,
+        "names": [
+          "25-1차 포장 및 치장재료 구매",
+          "25-3차 포장 및 치장재료(35여단)",
+          "25-2차 포장 및 치장재료(27여단)"
+        ]
+      },
+      {
+        "n_contracts": 15,
+        "sum_est_price": 77481272,
+        "span_days": 28,
+        "same_vendor": false,
+        "names": [
+          "(공-96) 파티션 등 6종 구매",
+          "(공-96) 파티션 등 6종 구매",
+          "(공-96) 파티션 등 6종 구매"
+        ]
+      },
+      {
+        "n_contracts": 7,
+        "sum_est_price": 69166354,
+        "span_days": 52,
+        "same_vendor": false,
+        "names": [
+          "25년 2차 장비운영소모품 구매",
+          "25년 9차 장비운영소모품 구매",
+          "25년 7차 장비운영소모품 구매"
+        ]
+      },
+      {
+        "n_contracts": 6,
+        "sum_est_price": 63854545,
+        "span_days": 61,
+        "same_vendor": false,
+        "names": [
+          "119-2  3대대 후반기 작계훈련(2-1차) 전투식량 구매",
+          "119-2~4대대 후반기 작계훈련(1-2차) 전투식량 구매",
+          "119-3대대 후반기 작계훈련(1-1차) 전투식량 구매"
+        ]
+      }
+    ]
+  },
+  "price_anomaly": {
+    "population": 5631,
+    "clusters": 276,
+    "flagged": 96,
+    "flagged_rate": 0.017,
+    "params": {
+      "min_cluster_size": 10,
+      "robust_z_threshold": 3.5,
+      "mad_floor_log10": 0.05,
+      "scale": "log10(추정가격), MAD 기반"
+    },
+    "caveat": "규격·수량이 공개 데이터에 없어 단가가 아닌 총액 비교다. 이상치는 가격 부적정이 아니라 설명이 필요한 건을 뜻한다.",
+    "top_examples": [
+      {
+        "cluster": "guc 구매",
+        "name": "25-0039 GUC 3차 구매",
+        "est_price": 159781445,
+        "cluster_median": 17793089,
+        "ratio_to_median": 8.98,
+        "robust_z": 12.86,
+        "cluster_n": 10
+      },
+      {
+        "cluster": "guc 구매",
+        "name": "25-0126 GUC 8차 구매",
+        "est_price": 149886427,
+        "cluster_median": 17793089,
+        "ratio_to_median": 8.42,
+        "robust_z": 12.49,
+        "cluster_n": 10
+      },
+      {
+        "cluster": "병영도서 0종",
+        "name": "24-1-40호 병영도서 25종 구매",
+        "est_price": 394236,
+        "cluster_median": 4068837,
+        "ratio_to_median": 0.1,
+        "robust_z": -10.64,
+        "cluster_n": 10
+      },
+      {
+        "cluster": "버스 임차",
+        "name": "25-버스 임차 용역",
+        "est_price": 17646000,
+        "cluster_median": 1245454,
+        "ratio_to_median": 14.17,
+        "robust_z": 10.11,
+        "cluster_n": 11
+      },
+      {
+        "cluster": "항공 uh",
+        "name": "(항공) UH-60 오링 구매",
+        "est_price": 650909,
+        "cluster_median": 15373018,
+        "ratio_to_median": 0.04,
+        "robust_z": -8.94,
+        "cluster_n": 14
+      }
+    ]
+  },
+  "vendor_concentration": {
+    "departments_evaluated": 200,
+    "flagged_departments": 2,
+    "flagged_rate": 0.01,
+    "params": {
+      "min_contracts": 10,
+      "amount_share_threshold": 0.6
+    },
+    "caveat": "단일 공급원이 실제로 하나뿐인 품목군에서는 정상일 수 있어 편중 자체를 위반으로 보지 않는다. 보고서에서 부서명은 익명화한다.",
+    "top_examples": [
+      {
+        "n_sole_source": 33,
+        "top_vendor_contracts": 7,
+        "amount_share": 0.886
+      },
+      {
+        "n_sole_source": 11,
+        "top_vendor_contracts": 3,
+        "amount_share": 0.626
+      }
+    ]
+  },
+  "similar_contract_bands": {
+    "total_contracts": 37595,
+    "clusters_with_5plus": 927,
+    "coverage_rate": 0.2842,
+    "median_iqr_over_median": 1.11,
+    "note": "군집 5건 이상이면 사분위 가격대를 참고자료로 제시"
+  }
+}

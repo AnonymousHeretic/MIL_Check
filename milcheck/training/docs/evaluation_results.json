@@ -1,0 +1,305 @@
+{
+  "L1_rules": {
+    "layer": "L1 규칙 회귀 (자체 라벨)",
+    "total": 60,
+    "correct": 60,
+    "accuracy": 1.0,
+    "false_pass": 0,
+    "false_pass_rate": 0.0,
+    "failures": [],
+    "caveat": "라벨을 규칙 설계자가 작성했으므로 실제 정확도가 아니라 회귀 무결성 지표다."
+  },
+  "L3_audit": {
+    "layer": "L3 감사사례 재현 (외부 라벨: 공개 감사보고서)",
+    "total": 12,
+    "detected": 11,
+    "detection_rate": 0.9167,
+    "decision_match_rate": 0.9167,
+    "details": [
+      {
+        "case_id": "AUD-001",
+        "audit_finding": "분할 수의계약",
+        "expected_flag": "SMALL-SPLIT",
+        "detected": true,
+        "decision": "REJECT_GROUND",
+        "expected_decision": "REJECT_GROUND",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-002",
+        "audit_finding": "시기적·공종별 분할발주",
+        "expected_flag": "SMALL-SPLIT",
+        "detected": true,
+        "decision": "REJECT_GROUND",
+        "expected_decision": "REJECT_GROUND",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-003",
+        "audit_finding": "경쟁제한적 규격 지정",
+        "expected_flag": "SOLE-ALTERNATIVE",
+        "detected": true,
+        "decision": "REJECT_GROUND",
+        "expected_decision": "REJECT_GROUND",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-004",
+        "audit_finding": "객관적 대체불가성 미입증",
+        "expected_flag": "SOLE-EVIDENCE",
+        "detected": true,
+        "decision": "NEEDS_EVIDENCE",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-005",
+        "audit_finding": "연도말 예산소진형 수의계약",
+        "expected_flag": "URGENT-SELF",
+        "detected": true,
+        "decision": "REJECT_GROUND",
+        "expected_decision": "REJECT_GROUND",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-006",
+        "audit_finding": "가격 적정성 미검토",
+        "expected_flag": "MISSING:price_reasonableness",
+        "detected": true,
+        "decision": "NEEDS_EVIDENCE",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-007",
+        "audit_finding": "특정업체 편중",
+        "expected_flag": "MISSING:no_artificial_split_review",
+        "detected": true,
+        "decision": "NEEDS_EVIDENCE",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-008",
+        "audit_finding": "열거주의 위반 위험",
+        "expected_flag": "SOLE-EVIDENCE",
+        "detected": false,
+        "decision": "REJECT_GROUND",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": false,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-009",
+        "audit_finding": "사유와 대상행위 불일치",
+        "expected_flag": "SOLE-EVIDENCE",
+        "detected": true,
+        "decision": "NEEDS_EVIDENCE",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-010",
+        "audit_finding": "전자견적 절차 누락",
+        "expected_flag": "SMALL-QUOTE",
+        "detected": true,
+        "decision": "NEEDS_EVIDENCE",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": true,
+        "note": ""
+      },
+      {
+        "case_id": "AUD-011",
+        "audit_finding": "분할이나 불가피성 소명 가능",
+        "expected_flag": "SMALL-SPLIT",
+        "detected": true,
+        "decision": "REJECT_GROUND",
+        "expected_decision": "REJECT_GROUND",
+        "decision_match": true,
+        "note": "현재 규칙은 불가피성 증빙을 반영하지 못한다. 알려진 한계로 기록한다."
+      },
+      {
+        "case_id": "AUD-012",
+        "audit_finding": "전자견적 예외 사유 확인 필요",
+        "expected_flag": "SMALL-QUOTE",
+        "detected": true,
+        "decision": "NEEDS_EVIDENCE",
+        "expected_decision": "NEEDS_EVIDENCE",
+        "decision_match": true,
+        "note": "현재 규칙은 시행규칙 제33조 예외를 반영하지 못한다. 알려진 한계로 기록한다."
+      }
+    ],
+    "caveat": "공개 보고서에 없는 세부값은 지적 유형이 유지되는 범위에서 대표값으로 대체했다. 재현율은 지적 유형 탐지 여부를 뜻한다."
+  },
+  "R_retrieval": {
+    "layer": "R 근거검색 (외부 라벨: 실무 표현 질의)",
+    "total": 30,
+    "by_mode": {
+      "bm25": {
+        "recall_at_1": 0.5333,
+        "recall_at_3": 0.6333,
+        "mrr": 0.5722
+      },
+      "ngram": {
+        "recall_at_1": 0.9667,
+        "recall_at_3": 0.9667,
+        "mrr": 0.9667
+      },
+      "hybrid": {
+        "recall_at_1": 0.7,
+        "recall_at_3": 0.8667,
+        "mrr": 0.7722
+      }
+    }
+  },
+  "E_extraction_dev": {
+    "layer": "E 필드추출 (개발세트 — 규칙을 이 세트로 작성했으므로 상한값)",
+    "total": 30,
+    "field_level_accuracy": 1.0,
+    "field_level_counts": {
+      "correct": 109,
+      "total": 109
+    },
+    "exact_match_cases": 30,
+    "exact_match_rate": 1.0,
+    "field_accuracy": {
+      "estimated_price_krw_ex_vat": 1.0,
+      "contract_category": 1.0,
+      "proposed_type": 1.0,
+      "quote_count_planned": 1.0,
+      "evidence": 1.0,
+      "sole_source_basis": 1.0,
+      "urgent_security_basis": 1.0,
+      "urgency_cause_internal_delay": 1.0,
+      "contractor_category": 1.0,
+      "small_amount_basis": 1.0,
+      "electronic_quotes_planned": 1.0,
+      "split_contract_risk": 1.0
+    },
+    "failures": []
+  },
+  "E_extraction_holdout": {
+    "layer": "E 필드추출 (홀드아웃 — 튜닝하지 않음, 실제 성능 추정치)",
+    "total": 20,
+    "field_level_accuracy": 0.8788,
+    "field_level_counts": {
+      "correct": 58,
+      "total": 66
+    },
+    "exact_match_cases": 17,
+    "exact_match_rate": 0.85,
+    "field_accuracy": {
+      "estimated_price_krw_ex_vat": 0.9474,
+      "contract_category": 0.8571,
+      "proposed_type": 0.7692,
+      "quote_count_planned": 0.6667,
+      "contractor_category": 1.0,
+      "sole_source_basis": 0.5,
+      "evidence": 1.0,
+      "urgent_security_basis": 1.0,
+      "urgency_cause_internal_delay": 1.0,
+      "small_amount_basis": 1.0,
+      "split_contract_risk": 1.0,
+      "electronic_quotes_planned": 1.0
+    },
+    "failures": [
+      {
+        "case_id": "EXH-01",
+        "all_ok": false,
+        "fields": {
+          "estimated_price_krw_ex_vat": {
+            "expected": 14000000,
+            "got": null,
+            "ok": false
+          },
+          "contract_category": {
+            "expected": "goods",
+            "got": null,
+            "ok": false
+          },
+          "proposed_type": {
+            "expected": "small_amount",
+            "got": null,
+            "ok": false
+          },
+          "quote_count_planned": {
+            "expected": 2,
+            "got": null,
+            "ok": false
+          }
+        }
+      },
+      {
+        "case_id": "EXH-10",
+        "all_ok": false,
+        "fields": {
+          "estimated_price_krw_ex_vat": {
+            "expected": 74000000,
+            "got": 74000000,
+            "ok": true
+          },
+          "proposed_type": {
+            "expected": "sole_source",
+            "got": null,
+            "ok": false
+          },
+          "sole_source_basis": {
+            "expected": "original_supplier_direct_service",
+            "got": null,
+            "ok": false
+          },
+          "evidence": {
+            "expected": [
+              "original_supplier_proof",
+              "direct_service_necessity"
+            ],
+            "got": [
+              "direct_service_necessity",
+              "original_supplier_proof"
+            ],
+            "ok": true
+          }
+        }
+      },
+      {
+        "case_id": "EXH-11",
+        "all_ok": false,
+        "fields": {
+          "estimated_price_krw_ex_vat": {
+            "expected": 200000000,
+            "got": 200000000,
+            "ok": true
+          },
+          "proposed_type": {
+            "expected": "sole_source",
+            "got": null,
+            "ok": false
+          },
+          "sole_source_basis": {
+            "expected": "single_supplier",
+            "got": null,
+            "ok": false
+          }
+        }
+      }
+    ]
+  },
+  "L2_real_data": {
+    "layer": "L2 실데이터 (외부 라벨: 방위사업청 공개계약)",
+    "total": 300,
+    "article_top1": 0.78,
+    "article_top2": 0.9233,
+    "article_top3": 0.9567,
+    "method_top1": 0.9167,
+    "method_top2": 0.9867,
+    "note": "정답은 계약서에 기재된 실제 근거조항·계약방법이며 MIL-Check가 만든 라벨이 아니다."
+  }
+}

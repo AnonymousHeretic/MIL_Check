@@ -1,0 +1,19 @@
+{
+  "case_id": "EX-SMALL-001",
+  "item_name": "부대 행정용 바코드 스캐너 구매",
+  "description": "일반 상용품 12대 구매. 동일 사업의 추가 구매 계획은 없음.",
+  "contract_category": "goods",
+  "estimated_price_krw_ex_vat": 18000000,
+  "proposed_type": "small_amount",
+  "small_amount_basis": "general",
+  "contractor_category": "general",
+  "quote_count_planned": 2,
+  "electronic_quotes_planned": false,
+  "split_contract_risk": false,
+  "evidence": [
+    "price_reasonableness",
+    "vendor_eligibility",
+    "conflict_of_interest_check",
+    "no_artificial_split_review"
+  ]
+}

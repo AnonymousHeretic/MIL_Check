@@ -1,0 +1,25 @@
+{
+  "model": "contract_method",
+  "n_train": 34457,
+  "n_test": 8615,
+  "n_classes": 6,
+  "top1_accuracy": 0.81,
+  "top2_accuracy": 0.9604,
+  "top3_accuracy": 0.9892,
+  "macro_f1": 0.6987,
+  "weighted_f1": 0.8197,
+  "majority_baseline_accuracy": 0.7019
+}
+
+              precision    recall  f1-score   support
+
+       2단계경쟁       0.59      0.79      0.67        86
+        수의계약       0.94      0.82      0.88      6047
+        일반경쟁       0.65      0.79      0.71      1308
+        제한경쟁       0.57      0.77      0.66      1035
+        지명경쟁       0.62      0.83      0.71         6
+     협상에의한계약       0.44      0.76      0.56       133
+
+    accuracy                           0.81      8615
+   macro avg       0.64      0.79      0.70      8615
+weighted avg       0.84      0.81      0.82      8615

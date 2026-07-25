@@ -1,0 +1,32 @@
+{
+  "article": {
+    "model": "sole_source_article",
+    "n_train": 24047,
+    "n_test": 6012,
+    "n_classes": 19,
+    "top1_accuracy": 0.7806,
+    "top2_accuracy": 0.92,
+    "top3_accuracy": 0.9544,
+    "macro_f1": 0.5444,
+    "weighted_f1": 0.7931,
+    "majority_baseline_accuracy": 0.6239
+  },
+  "method": {
+    "model": "contract_method",
+    "n_train": 34457,
+    "n_test": 8615,
+    "n_classes": 6,
+    "top1_accuracy": 0.81,
+    "top2_accuracy": 0.9604,
+    "top3_accuracy": 0.9892,
+    "macro_f1": 0.6987,
+    "weighted_f1": 0.8197,
+    "majority_baseline_accuracy": 0.7019
+  },
+  "dataset": {
+    "file": "방위사업청_국내조달_계약정보_20251231.csv",
+    "rows_used": 43072,
+    "date_min": "2024-11-01",
+    "date_max": "2025-12-31"
+  }
+}

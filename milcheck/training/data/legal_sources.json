@@ -1,0 +1,148 @@
+{
+  "current_as_of": "2026-07-23",
+  "collection_policy": {
+    "authority_order": [
+      "국가법령정보센터 현행 법령·행정규칙",
+      "감사원·중앙부처·지방정부 공개 감사/법령해석",
+      "공식 입찰공고·서식",
+      "민간 해설은 검증 보조로만 사용"
+    ],
+    "historical_case_rule": "과거 사례는 위험패턴과 증빙요건 추출에만 사용하고 현행 법적 결론은 최신 규칙으로 재평가"
+  },
+  "current_law_and_regulation": [
+    {
+      "id": "SRC-LAW-001",
+      "title": "국가를 당사자로 하는 계약에 관한 법률",
+      "authority": "법률 제21418호",
+      "effective_date": "2026-06-11",
+      "relevant_articles": ["제3조", "제7조", "제11조"],
+      "url": "https://www.law.go.kr/lsInfoP.do?ancYnChk=0&lsId=000695",
+      "status": "current"
+    },
+    {
+      "id": "SRC-LAW-002",
+      "title": "국가를 당사자로 하는 계약에 관한 법률 시행령",
+      "authority": "대통령령 제36338호",
+      "effective_date": "2026-06-03",
+      "relevant_articles": ["제2조", "제7조", "제26조", "제27조", "제30조", "제49조"],
+      "url": "https://www.law.go.kr/lsInfoP.do?ancYnChk=0&lsId=002652",
+      "status": "current"
+    },
+    {
+      "id": "SRC-LAW-003",
+      "title": "국가를 당사자로 하는 계약에 관한 법률 시행규칙",
+      "authority": "재정경제부령 제1호",
+      "effective_date": "2026-01-02",
+      "relevant_articles": ["제33조"],
+      "url": "https://www.law.go.kr/lsInfoP.do?ancYnChk=0&lsId=006590",
+      "status": "current"
+    },
+    {
+      "id": "SRC-REG-001",
+      "title": "(계약예규) 정부 입찰·계약 집행기준",
+      "authority": "재정경제부계약예규 제148호",
+      "effective_date": "2026-04-30",
+      "relevant_articles": ["제4장 제7조~제12조", "제10조의2"],
+      "url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000276688&chrClsCd=010201",
+      "status": "current"
+    },
+    {
+      "id": "SRC-MND-001",
+      "title": "계약업무처리훈령",
+      "authority": "국방부훈령 제2981호",
+      "effective_date": "2024-10-24",
+      "relevant_articles": ["제2조", "제7조~제12조 관련 계약절차"],
+      "url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000253324&chrClsCd=010201",
+      "status": "current-listing-as-of-2026-07-23"
+    },
+    {
+      "id": "SRC-MND-002",
+      "title": "국군재정관리단 계약 관련 업무처리절차에 관한 훈령",
+      "authority": "국방부훈령 제2980호",
+      "effective_date": "2024-10-23",
+      "relevant_articles": ["계약요청", "기초예비가격", "업무분장", "별지 제4호"],
+      "url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000248478&chrClsCd=010201",
+      "status": "current-listing-as-of-2026-07-23"
+    },
+    {
+      "id": "SRC-D2B-001",
+      "title": "국방전자조달시스템 전자입찰 특별유의서",
+      "authority": "방위사업청예규 제1011호",
+      "effective_date": "2025-11-14",
+      "relevant_articles": ["전자견적·전자입찰 시스템 절차"],
+      "url": "https://www.law.go.kr/joStmdInfoP.do?joBrNo=00&joNo=0030&lsiSeq=106752",
+      "status": "current-listing-as-of-2026-07-23"
+    }
+  ],
+  "public_audit_and_interpretation_cases": [
+    {
+      "id": "SRC-CASE-001",
+      "title": "공개수의계약에 참여하려고 합니다",
+      "issuer": "방위사업청",
+      "date": "2025-12-23",
+      "url": "https://www.law.go.kr/LSW/cgmExpcInfoP.do?cgmExpcDatSeq=2292753&mode=2&ofiClsCd=350129",
+      "use": "전자공개 소액수의와 경쟁입찰의 차이",
+      "current_caution": "회답이 인용한 2021년 예규 문구는 2026년 현행 예규와 재대조"
+    },
+    {
+      "id": "SRC-CASE-002",
+      "title": "방산물자 지정범위 및 방산 수의계약 가능여부",
+      "issuer": "방위사업청",
+      "date": "2007-07-19",
+      "url": "https://www.law.go.kr/LSW/cgmExpcInfoP.do?cgmExpcDatSeq=373524&mode=2&ofiClsCd=350129",
+      "use": "열거된 계약대상·행위 유형의 엄격한 구분",
+      "current_caution": "당시 법령 사례이며 방위사업법 개정 여부를 별도 확인"
+    },
+    {
+      "id": "SRC-CASE-003",
+      "title": "맞춤형복지제도 관리운영대행기관과의 약정 관련",
+      "issuer": "국방부",
+      "date": "2015-08-24",
+      "url": "https://www.law.go.kr/LSW/cgmExpcInfoP.do?cgmExpcDatSeq=387444&mode=2&ofiClsCd=350112",
+      "use": "수의계약 사유는 열거적이며 단순한 특별법 법인·업무협정만으로 부족",
+      "current_caution": "경과조치가 만료된 역사적 사례"
+    },
+    {
+      "id": "SRC-AUDIT-001",
+      "title": "수의계약 실태 등에 대한 특정감사 결과보고서",
+      "issuer": "기상청",
+      "date": "2019",
+      "url": "https://www.kma.go.kr/kma/servlet/NeoboardProcess?bid=ngamsa02&callback=https%3A%2F%2Fwww.kma.go.kr%2Fkma%2Fpublic%2Fintegrity_02.jsp&fno=1&k=ATC201907151839121_9d7881b4-d96a-4606-af1a-a1d63260f866.pdf&mode=download&num=59&ses=USERSESSION",
+      "use": "특정업체 편중, 연도말 집중, 분할 여부, 절차·증빙 점검"
+    },
+    {
+      "id": "SRC-AUDIT-002",
+      "title": "그늘막 분할 수의계약에 관한 사항",
+      "issuer": "감사원",
+      "date": "2022-01-20",
+      "url": "https://www.bai.go.kr/proactive/adm/bbs/detailBoardArticle.do?bbsId=BBSMSTR_100000000065&mdex=proactive023&nttId=128185",
+      "use": "분할 정황과 불가피성·공익성·고의과실을 구분",
+      "current_caution": "지방계약 사례이므로 국가계약 결론에 직접 적용하지 않음"
+    },
+    {
+      "id": "SRC-AUDIT-003",
+      "title": "2025년 수의계약 운영실태 특정감사 결과",
+      "issuer": "서울특별시 구로구",
+      "date": "2025",
+      "url": "https://www.guro.go.kr/www/downloadBbsFile.do?atchmnflNo=334943&bbsNo=593&key=1817&nttNo=217786&pageIndex=1&pageUnit=10",
+      "use": "행정편의·선례 답습에 따른 공종별·시기별 분할발주 위험",
+      "current_caution": "지방계약 사례"
+    },
+    {
+      "id": "SRC-AUDIT-004",
+      "title": "2017년 감사요청사항 관련 특정감사",
+      "issuer": "부산광역시",
+      "date": "2017",
+      "url": "https://www.busan.go.kr/comm/getFile?fileNo=1&fileTy=ATTACH&srvcId=BBSTY1&upperNo=1307041",
+      "use": "시방서에 특정제품 규격·인증번호를 넣어 경쟁을 배제하는 위험"
+    },
+    {
+      "id": "SRC-AUDIT-005",
+      "title": "인쇄계약의 투명성 및 공정성 강화 노력 미흡",
+      "issuer": "통계청",
+      "date": "2024",
+      "url": "https://mods.go.kr/boardDownload.es?bid=11829&list_no=431872&seq=2",
+      "use": "특정업체 편중과 경쟁계약 확대 필요"
+    }
+  ]
+}
