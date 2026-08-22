@@ -21,7 +21,7 @@ COMMON = ["price_reasonableness", "vendor_eligibility",
 
 PRESETS = {
     "small_ok": {
-        "label": "A 정상 소액수의",
+        "label": "일반 물품 구매",
         "hint": "금액 기준과 기본 증빙을 충족하는 정상 사례",
         "case": {
             "case_id": "DEMO-A", "item_name": "교육훈련용 보호장구 구매",
@@ -34,7 +34,7 @@ PRESETS = {
         },
     },
     "compatibility_missing": {
-        "label": "B 호환성 증빙 부족",
+        "label": "기존 장비 호환 부품",
         "hint": "호환성 주장만으로는 부족하고 대체불가성·시장조사가 필요합니다",
         "case": {
             "case_id": "DEMO-B", "item_name": "기존 정수장비 교체 모듈",
@@ -46,7 +46,7 @@ PRESETS = {
         },
     },
     "urgent_bad": {
-        "label": "C 자체 지연 긴급수의",
+        "label": "긴급 구매 요청",
         "hint": "납기보다 긴급성이 발생한 원인을 검사합니다",
         "case": {
             "case_id": "DEMO-C", "item_name": "발주 지연에 따른 긴급 구매",
@@ -60,7 +60,7 @@ PRESETS = {
         },
     },
     "out_scope": {
-        "label": "D 범위 밖 공사",
+        "label": "공사 계약",
         "hint": "현재 MVP가 최종 판정하지 않는 계약 유형입니다",
         "case": {
             "case_id": "DEMO-D", "item_name": "부대 배관 공사",
@@ -115,17 +115,33 @@ padding:12px;border-radius:9px;color:#1e40af;font-size:13px}.footer{font-size:12
 def esc(value) -> str:
     return html.escape(str(value))
 
+FIELD_LABELS = {
+    "estimated_price_krw_ex_vat": "예상 계약금액",
+    "contract_category": "계약 대상",
+    "proposed_type": "검토 중인 계약 방식",
+    "small_amount_basis": "소액수의 적용 사유",
+    "sole_source_basis": "수의계약을 고려하는 이유",
+    "urgent_security_basis": "긴급·보안 사유",
+    "contractor_category": "계약상대자 유형",
+    "quote_count_planned": "예정된 견적 수",
+    "electronic_quotes_planned": "전자견적 진행 여부",
+    "split_contract_risk": "분할발주 가능성",
+    "evidence": "현재 확인된 자료",
+    "alternatives_exist": "대체 가능한 업체·제품 존재 여부",
+    "urgency_cause_internal_delay": "긴급성이 내부 지연에서 비롯되었는지",
+}
+
 def render_intake(intake: dict | None) -> str:
     if not intake:
         return ""
     rows = "".join(
-        f"<tr><td>{esc(k)}</td><td>{esc(json.dumps(v, ensure_ascii=False) if isinstance(v,(list,dict)) else v)}</td>"
+        f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(json.dumps(v, ensure_ascii=False) if isinstance(v,(list,dict)) else v)}</td>"
         f"<td>{esc(intake.get('confidence',{}).get(k,'확인 필요'))}</td></tr>"
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
-    return f"""<div class="card"><h2>1. 추출 결과 <span class="kv">담당자 확인 후 검토 실행</span></h2>
-<table><tr><th>필드</th><th>추출값</th><th>신뢰도</th></tr>{rows}</table>
+    return f"""<div class="card"><h2>1. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
+<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>확인 상태</th></tr>{rows}</table>
 <ul style="margin-top:10px">{notes}</ul>
 <div class="callout">이 값은 AI가 추출한 초안입니다. 실제 증빙과 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
 
@@ -137,9 +153,9 @@ def render_findings(report: dict) -> str:
     )
     missing = "".join(f"<li>{esc(x)}</li>" for x in report["missing_evidence"]) or "<li>없음</li>"
     controls = "".join(f"<li>{esc(x)}</li>" for x in report["controls"]) or "<li>없음</li>"
-    return f"""<div class="card"><h2>3. 규칙 점검 결과 <span class="kv">판정은 이 계층만 결정</span></h2>
-{findings}</div><div class="grid"><div class="card"><h2>4. 보완 필요 증빙</h2><ul>{missing}</ul></div>
-<div class="card"><h2>5. 필수 통제조건</h2><ul>{controls}</ul></div></div>"""
+    return f"""<div class="card"><h2>3. 사전검토 결과 <span class="kv">규정 기준으로 확인한 결과</span></h2>
+{findings}</div><div class="grid"><div class="card"><h2>4. 추가로 필요한 자료</h2><ul>{missing}</ul></div>
+<div class="card"><h2>5. 담당자 확인사항</h2><ul>{controls}</ul></div></div>"""
 
 def render_advisory(report: dict) -> str:
     adv = report.get("advisory") or {}
@@ -150,7 +166,7 @@ def render_advisory(report: dict) -> str:
     ml = adv.get("ml") or {}
     methods = ", ".join(f"{esc(x['method'])} {x['probability']:.0%}" for x in ml.get("method_top_k",[])[:3])
     extra = f"<div class='kv'>계약방법 추천: {methods}</div>" if methods else ""
-    return f"""<div class="card"><h2>6. AI·데이터 참고 신호 <span class="kv">판정에 반영되지 않음</span></h2>
+    return f"""<div class="card"><h2>6. 참고 자료와 유사 사례 <span class="kv">최종 판정과 구분되는 참고 정보</span></h2>
 {signals or '<div class="kv">표시할 참고 신호가 없습니다.</div>'}{extra}</div>"""
 
 def render_page(key: str, report: dict, intake: dict | None, text: str) -> str:
@@ -165,13 +181,13 @@ def render_page(key: str, report: dict, intake: dict | None, text: str) -> str:
 <style>{STYLE}</style></head><body><main class="wrap">
 <header class="header"><div><h1>MIL-Check</h1><div class="sub">근거 기반 군 계약 사전점검 보조 시스템 · 로컬 데모</div></div>
 <div class="badges"><span class="pill">외부 전송 없음</span><span class="pill">규칙 기반 판정</span><span class="pill">담당자 최종 확인</span></div></header>
-<div class="workflow"><span class="step {active}">① 입력</span><span class="step {'done' if intake else ''}">② 구조화 확인</span><span class="step {'done' if intake or key else ''}">③ 규칙 점검</span><span class="step">④ 보고서</span></div>
-<div class="card"><h2>시연 시나리오 선택</h2><div class="btns">{buttons}</div>
-<div class="hint">{esc(PRESETS.get(key,{}).get('hint','자유서술을 입력하면 구조화 결과를 먼저 표시합니다.'))}</div></div>
-<div class="card"><h2>0. 계약 상황 입력</h2><form method="get" action="/">
+<div class="workflow"><span class="step {active}">① 입력</span><span class="step {'done' if intake else ''}">② 내용 확인</span><span class="step {'done' if intake or key else ''}">③ 사전검토</span><span class="step">④ 근거와 확인사항</span></div>
+<div class="card"><h2>검토할 계약 상황 선택</h2><div class="btns">{buttons}</div>
+<div class="hint">{esc(PRESETS.get(key,{}).get('hint','계약 상황을 선택하거나 아래에 직접 입력하십시오.'))}</div></div>
+<div class="card"><h2>0. 계약 상황을 문장으로 입력</h2><form method="get" action="/">
 <textarea name="text" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
-<div style="margin-top:10px"><button class="btn primary" type="submit">추출 결과 확인</button>
-<a class="btn" href="/?preset={esc(key or 'small_ok')}">선택 시나리오로 초기화</a></div></form></div>
+<div style="margin-top:10px"><button class="btn primary" type="submit">내용 이해하기</button>
+<a class="btn" href="/?preset={esc(key or 'small_ok')}">선택한 상황 다시 보기</a></div></form></div>
 {render_intake(intake)}
 <div class="card status"><div><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div></div>
 <span class="badge {esc(report['decision'])}">{esc(DECISION_KO.get(report['decision'], report['decision']))}</span></div>
