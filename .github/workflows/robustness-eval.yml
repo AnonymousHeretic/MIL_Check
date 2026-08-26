@@ -1,0 +1,27 @@
+name: Robustness evaluation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [eval-robustness]
+    paths:
+      - evaluate_robustness.py
+      - data/contracts_index.jsonl.gz
+      - .github/workflows/robustness-eval.yml
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements-training.txt
+      - run: python evaluate_robustness.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: robustness-results
+          path: docs/robustness_results.json
