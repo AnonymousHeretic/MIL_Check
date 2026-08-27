@@ -1,4 +1,4 @@
-name: Robustness evaluation
+name: Robustness and comprehensive evaluation
 
 on:
   workflow_dispatch:
@@ -6,13 +6,16 @@ on:
     branches: [eval-robustness]
     paths:
       - evaluate_robustness.py
+      - evaluate_comprehensive.py
+      - milcheck/**
+      - eval/**
       - data/contracts_index.jsonl.gz
       - .github/workflows/robustness-eval.yml
 
 jobs:
   evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,8 +23,12 @@ jobs:
           python-version: '3.11'
           cache: pip
       - run: pip install -r requirements-training.txt
+      - run: pip install -r requirements.txt
       - run: python evaluate_robustness.py
+      - run: python evaluate_comprehensive.py
       - uses: actions/upload-artifact@v4
         with:
-          name: robustness-results
-          path: docs/robustness_results.json
+          name: evaluation-results-v2
+          path: |
+            docs/robustness_results.json
+            docs/evaluation_results_v2.json
