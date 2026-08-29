@@ -52,7 +52,8 @@ class RuleEngine:
 
     def evaluate(self, case: dict[str, Any]) -> Evaluation:
         proposed_type = str(case.get("proposed_type", ""))
-        if case.get("contract_category") not in {"goods", "service"}:
+        if case.get("contract_category") not in {"goods", "service", "lease"} or (
+            case.get("contract_category") == "lease" and proposed_type != "lease"):
             return Evaluation(
                 decision="OUT_OF_SCOPE",
                 proposed_type=proposed_type,
@@ -72,6 +73,8 @@ class RuleEngine:
             result = self._sole_source(case)
         elif proposed_type == "urgent_security":
             result = self._urgent_security(case)
+        elif proposed_type in {"post_tender", "designated_product", "lease"}:
+            result = self._additional_type(case, proposed_type)
         else:
             return Evaluation(
                 decision="OUT_OF_SCOPE",
@@ -88,6 +91,31 @@ class RuleEngine:
             )
         self._finalize(result)
         return result
+
+    def _additional_type(self, case: dict[str, Any], proposed_type: str) -> Evaluation:
+        """보조 유형은 등록된 필수 증빙을 모두 확인할 때만 통과시킨다."""
+        spec = self.rules.get("additional_types", {}).get(proposed_type, {})
+        evaluation = Evaluation(
+            decision="NEEDS_EVIDENCE", proposed_type=proposed_type,
+            legal_ground=spec.get("legal_basis", "추가 규칙팩"),
+        )
+        evidence = self._common_checks(case, evaluation)
+        required = spec.get("required_evidence", [])
+        self._require(evidence, required, evaluation)
+        if required and all(item in evidence for item in required):
+            evaluation.findings.append(self._finding(
+                "ADDITIONAL-EVIDENCE", "pass",
+                f"{spec.get('label', proposed_type)} 필수 증빙이 입력되었습니다.",
+                evaluation.legal_ground,
+            ))
+        else:
+            evaluation.findings.append(self._finding(
+                "ADDITIONAL-EVIDENCE", "warning",
+                f"{spec.get('label', proposed_type)} 적용 여부와 필수 증빙을 별도 확인해야 합니다.",
+                evaluation.legal_ground,
+            ))
+        evaluation.controls.append("해당 유형의 별도 계약요건·예외사유와 가격 적정성 확인")
+        return evaluation
 
     def _common_checks(self, case: dict[str, Any], evaluation: Evaluation) -> set[str]:
         evidence = set(case.get("evidence", []))

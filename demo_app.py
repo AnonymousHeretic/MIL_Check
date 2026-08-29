@@ -59,11 +59,24 @@ PRESETS = {
                 "scope_limited_to_necessity"],
         },
     },
+    "method_review": {
+        "label": "계약방법 재검토",
+        "hint": "규칙은 통과하지만 유사계약 데이터가 경쟁 가능성을 시사합니다",
+        "case": {
+            "case_id": "DEMO-D", "item_name": "감시장비 외주정비 용역",
+            "description": "규칙상 소액수의 요건 충족, 그러나 유사 계약은 대부분 제한경쟁",
+            "contract_category": "service", "proposed_type": "small_amount",
+            "small_amount_basis": "general", "contractor_category": "general",
+            "estimated_price_krw_ex_vat": 19_000_000, "quote_count_planned": 1,
+            "electronic_quotes_planned": False, "split_contract_risk": False,
+            "evidence": COMMON + ["no_artificial_split_review"],
+        },
+    },
     "out_scope": {
         "label": "공사 계약",
         "hint": "현재 MVP가 최종 판정하지 않는 계약 유형입니다",
         "case": {
-            "case_id": "DEMO-D", "item_name": "부대 배관 공사",
+            "case_id": "DEMO-E", "item_name": "부대 배관 공사",
             "description": "부대 내 배관 공사", "contract_category": "construction",
             "proposed_type": "small_amount", "estimated_price_krw_ex_vat": 15_000_000,
             "evidence": [],

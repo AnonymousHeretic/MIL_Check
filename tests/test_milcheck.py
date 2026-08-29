@@ -14,6 +14,7 @@ from milcheck.contracts import ContractIndex
 from milcheck.evaluation import (eval_audit, eval_extraction, eval_retrieval,
                                  eval_rules)
 from milcheck.extract import extract, parse_amount
+from demo_app import PRESETS
 from milcheck.linear_model import LinearTextClassifier, make_text
 from milcheck.ml import MLAdvisor
 from milcheck.rules import RuleEngine
@@ -46,6 +47,20 @@ class TestRules(unittest.TestCase):
                 "urgency_cause": "routine_delay",
                 "estimated_price_krw_ex_vat": 30_000_000, "evidence": []}
         self.assertEqual(self.engine.evaluate(case).decision, "REJECT_GROUND")
+
+    def test_single_supplier_uses_consistent_rule_key(self):
+        self.assertIn("single_supplier", self.engine.rules["sole_source"]["bases"])
+        self.assertNotIn("single_producer", self.engine.rules["sole_source"]["bases"])
+
+    def test_documented_additional_types_are_conservative(self):
+        for ptype, category in (("post_tender", "goods"), ("designated_product", "goods"), ("lease", "lease")):
+            result = self.engine.evaluate({
+                "item_name": "추가 유형 테스트", "contract_category": category,
+                "proposed_type": ptype, "estimated_price_krw_ex_vat": 30_000_000,
+                "evidence": [],
+            })
+            self.assertEqual(result.decision, "NEEDS_EVIDENCE")
+            self.assertTrue(result.missing_evidence)
 
     def test_out_of_scope_categories(self):
         case = {"item_name": "공사", "contract_category": "construction",
@@ -99,6 +114,13 @@ class TestLayerAuthority(unittest.TestCase):
             self.assertIn(signal["severity"], {"info", "warning"})
             self.assertTrue(signal["code"].startswith(("ML-", "DATA-")))
 
+    def test_method_review_case_has_competition_signal(self):
+        case = {**PRESETS["method_review"]["case"]}
+        report = self.full.review(case)
+        self.assertEqual(report["decision"], "PASS_WITH_CONTROLS")
+        messages = [s["message"] for s in report["advisory"]["signals"]]
+        self.assertTrue(any("상위 5건 중 4건" in m and "제한경쟁" in m for m in messages))
+
 
 class TestOfflineInference(unittest.TestCase):
     def test_models_load_and_predict(self):
@@ -145,6 +167,18 @@ class TestExtraction(unittest.TestCase):
     def test_internal_delay_is_flagged(self):
         fields = extract("내부 결재가 늦어져서 긴급하게 사야 합니다. 3천만원")["fields"]
         self.assertTrue(fields.get("urgency_cause_internal_delay"))
+        self.assertTrue(fields.get("self_created_urgency"))
+        self.assertEqual(fields.get("urgency_cause"), "routine_delay")
+
+    def test_specific_technical_service_is_extractable(self):
+        fields = extract("특정 기술과 전문 경험이 필요한 용역을 수의계약으로 진행합니다")["fields"]
+        self.assertEqual(fields.get("proposed_type"), "sole_source")
+        self.assertEqual(fields.get("sole_source_basis"), "specific_technical_service")
+
+    def test_documented_additional_types_are_extractable(self):
+        self.assertEqual(extract("재공고했지만 유찰되어 수의계약을 검토합니다 8천만원")["fields"]["proposed_type"], "post_tender")
+        self.assertEqual(extract("우수조달제품 인증서가 있는 장비를 구매합니다 3천만원")["fields"]["proposed_type"], "designated_product")
+        self.assertEqual(extract("장비를 임대차 계약으로 임차합니다 3천만원")["fields"]["contract_category"], "lease")
 
 
 class TestEvaluationSuite(unittest.TestCase):
@@ -169,6 +203,27 @@ class TestEvaluationSuite(unittest.TestCase):
     def test_extraction_holdout_baseline(self):
         result = eval_extraction(ROOT / "eval" / "extraction_holdout.jsonl")
         self.assertGreaterEqual(result["field_level_accuracy"], 0.85)
+
+    def test_method_review_demo_preset_is_distinct_from_out_of_scope(self):
+        self.assertEqual(PRESETS["method_review"]["case"]["case_id"], "DEMO-D")
+        self.assertEqual(PRESETS["out_scope"]["case"]["case_id"], "DEMO-E")
+
+    def test_article_abstention_is_explicit(self):
+        result = MLAdvisor().advise({
+            "item_name": "감시장비 외주정비 용역",
+            "contract_category": "service",
+            "proposed_type": "small_amount",
+            "small_amount_basis": "general",
+            "estimated_price_krw_ex_vat": 19_000_000,
+        })
+        self.assertIn("article_abstained", result)
+
+    def test_low_information_input_withholds_recommendations(self):
+        result = MLAdvisor().advise({})
+        self.assertTrue(result["article_abstained"])
+        self.assertTrue(result["method_abstained"])
+        self.assertEqual(result["article_top_k"], [])
+        self.assertEqual(result["method_top_k"], [])
 
 
 if __name__ == "__main__":

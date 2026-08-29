@@ -23,6 +23,8 @@ TYPE_TO_ARTICLES = {
                      "령26-1-5가(4)", "령26-1-5가(5)"},
     "sole_source": {"령26-1-2바", "령26-1-2사", "령26-1-2아", "령26-1-2자", "령26-1-2차"},
     "urgent_security": {"령26-1-1다"},
+    "post_tender": {"령27-1-1공", "령27-1-2재", "령27-3기"},
+    "designated_product": {"령26-1-3바", "령26-1-4다", "령26-1-5사"},
 }
 ARTICLE_TO_TYPE = {a: t for t, arts in TYPE_TO_ARTICLES.items() for a in arts}
 
@@ -43,6 +45,7 @@ SOLE_SOURCE_BASIS_TO_ARTICLE = {
     "compatibility": "령26-1-2사",
     "patented_no_substitute": "령26-1-2아",
     "single_supplier": "령26-1-2자",
+    "specific_technical_service": "령26-1-2차",
 }
 SMALL_AMOUNT_BASIS_TO_ARTICLE = {
     "general": "령26-1-5가(2)",
@@ -77,9 +80,14 @@ class MLAdvisor:
             return SOLE_SOURCE_BASIS_TO_ARTICLE.get(case.get("sole_source_basis", ""))
         if t == "urgent_security":
             return "령26-1-1다"
+        if t == "post_tender":
+            return "령27-1-1공"
+        if t == "designated_product":
+            return "령26-1-3바"
         return None
 
-    def advise(self, case: dict[str, Any], top_k: int = 3) -> dict[str, Any]:
+    def advise(self, case: dict[str, Any], top_k: int = 3,
+               similarity_max: float | None = None) -> dict[str, Any]:
         text = make_text(
             case.get("item_name", ""),
             "물품" if case.get("contract_category") == "goods" else "용역",
@@ -88,6 +96,10 @@ class MLAdvisor:
         art_ranked = self.article.predict_proba(text)
         met_ranked = self.method.predict_proba(text)
 
+        required_input = ("item_name", "estimated_price_krw_ex_vat", "proposed_type")
+        missing_input = any(case.get(k) in (None, "", 0) for k in required_input)
+        low_similarity = similarity_max is not None and similarity_max < 0.30
+
         declared = self._declared_article(case)
         art_map = dict(art_ranked)
         signals: list[dict[str, str]] = []
@@ -95,6 +107,11 @@ class MLAdvisor:
         top_art, top_p = art_ranked[0]
         second_p = art_ranked[1][1] if len(art_ranked) > 1 else 0.0
         confident = top_p >= CONFLICT_MIN_PROB and (top_p - second_p) >= CONFLICT_MIN_MARGIN
+        article_abstained = missing_input or low_similarity or not confident
+        method_top_p = met_ranked[0][1] if met_ranked else 0.0
+        method_second_p = met_ranked[1][1] if len(met_ranked) > 1 else 0.0
+        method_abstained = missing_input or low_similarity or not (
+            method_top_p >= CONFLICT_MIN_PROB and method_top_p - method_second_p >= CONFLICT_MIN_MARGIN)
 
         if declared and confident and top_art != declared:
             declared_rank = [a for a, _ in art_ranked].index(declared) + 1 \
@@ -141,20 +158,28 @@ class MLAdvisor:
                 ),
             })
 
+        article_candidates = [
+            {"article": a, "label": self.article.class_labels.get(a, a),
+             "probability": round(p, 4)}
+            for a, p in art_ranked[:top_k]
+        ]
+        method_candidates = [
+            {"method": m, "probability": round(p, 4)}
+            for m, p in met_ranked[:top_k]
+        ]
         return {
             "input_text": text,
-            "article_top_k": [
-                {"article": a, "label": self.article.class_labels.get(a, a),
-                 "probability": round(p, 4)}
-                for a, p in art_ranked[:top_k]
-            ],
-            "method_top_k": [
-                {"method": m, "probability": round(p, 4)} for m, p in met_ranked[:top_k]
-            ],
+            "article_top_k": [] if article_abstained else article_candidates,
+            "article_candidates": article_candidates if article_abstained else [],
+            "method_top_k": [] if method_abstained else method_candidates,
+            "method_candidates": method_candidates if method_abstained else [],
             "declared_article": declared,
             "declared_article_probability": round(art_map.get(declared, 0.0), 4)
             if declared else None,
             "confident": confident,
+            "article_abstained": article_abstained,
+            "method_abstained": method_abstained,
+            "abstention_reason": "입력 부족 또는 유사계약 확신도 미달" if (missing_input or low_similarity) else None,
             "signals": signals,
             "model_meta": {
                 "article": self.article.meta.get("metrics", {}),

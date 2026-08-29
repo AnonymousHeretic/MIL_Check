@@ -94,7 +94,11 @@ class MilCheckAgent:
 
         advisory: dict[str, Any] = {"signals": []}
         if self.advisor is not None:
-            advisory["ml"] = self.advisor.advise(case)
+            similarity_max = None
+            if self.contract_index is not None:
+                nearest = self.contract_index.search(case.get("item_name", ""), top_k=1)
+                similarity_max = nearest[0]["score"] if nearest else 0.0
+            advisory["ml"] = self.advisor.advise(case, similarity_max=similarity_max)
             advisory["signals"].extend(advisory["ml"]["signals"])
         if self.contract_index is not None:
             advisory["contract_data"] = self.contract_index.analyze(case)
