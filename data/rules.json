@@ -100,5 +100,22 @@
       "근거 없는 보안 표지",
       "긴급 범위를 넘는 장기·대량 계약"
     ]
+  },
+  "additional_types": {
+    "post_tender": {
+      "label": "공고·재공고 후 수의계약",
+      "legal_basis": "국가계약법 시행령 제27조",
+      "required_evidence": ["tender_failure_record", "re_tender_record", "competition_review"]
+    },
+    "designated_product": {
+      "label": "지정·인증 제품",
+      "legal_basis": "국가계약법 시행령 제26조제1항제3호·제4호·제5호",
+      "required_evidence": ["designation_certificate", "certificate_validity", "price_reasonableness"]
+    },
+    "lease": {
+      "label": "임대차",
+      "legal_basis": "국가계약법 및 관련 계약예규",
+      "required_evidence": ["lease_necessity", "price_reasonableness", "vendor_eligibility"]
+    }
   }
 }
