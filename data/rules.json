@@ -59,11 +59,11 @@
           "no_substitute_analysis"
         ]
       },
-      "single_producer": {
+      "single_supplier": {
         "label": "생산자 또는 소지자 1인",
         "legal_basis": "시행령 제26조제1항제2호자목",
         "required_evidence": [
-          "single_producer_evidence",
+          "single_supplier_evidence",
           "objective_market_search",
           "objective_need_definition",
           "no_substitute_analysis"
