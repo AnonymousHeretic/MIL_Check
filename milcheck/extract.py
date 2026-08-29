@@ -65,6 +65,8 @@ TYPE_PATTERNS = [
     ("sole_source", "original_supplier_direct_service",
      r"제조사가?\s*직접|공급자가?\s*직접|납품업체가?\s*직접\s*(설치|조립|정비)"),
     ("sole_source", "single_supplier", r"유일|단일\s*업체|독점|국내\s*유일"),
+    ("sole_source", "specific_technical_service",
+     r"특정\s*기술|특수\s*자격|전문\s*경험|자격\s*보유.*용역|특정\s*품질"),
     ("urgent_security", "urgent", r"긴급|촉박|시급|급히|급하|즉시\s*필요|재해|재난|복구|한파|태풍"),
     ("urgent_security", "security", r"보안상|비밀|기밀|대외비|보안\s*시설"),
     ("small_amount", "general", r"소액|이하\s*수의|간이"),
@@ -83,6 +85,10 @@ EVIDENCE_PATTERNS = {
     "registration_validity": r"권리\s*(유효|존속)|등록\s*유효기간",
     "original_supplier_proof": r"제조\s*증명|공급\s*실적\s*증명|납품\s*확인서",
     "direct_service_necessity": r"직접\s*시공\s*필요|직접\s*정비\s*필요",
+    "single_supplier_evidence": r"유일\s*(업체|생산|공급)\s*(증명|확인)|독점\s*공급\s*확인|단독\s*생산\s*증명",
+    "unique_qualification_evidence": r"특수\s*자격\s*(증명|확인)|전문\s*경험\s*증명|기술\s*자격\s*증명",
+    "scope_necessity": r"업무\s*범위\s*필요성|용역\s*범위\s*소명",
+    "alternative_experts_search": r"대체\s*전문가\s*조사|다른\s*전문\s*업체\s*조사|대안\s*인력\s*조사",
     "incident_log": r"사건\s*(일지|경위)|고장\s*(일지|보고)|발생\s*경위",
     "security_risk_analysis": r"보안\s*(위험|영향)\s*분석|보안성\s*검토",
     "urgency_causation": r"긴급\s*사유\S*\s*(입증|소명)|예측\S*\s*곤란|불가피\S*\s*사정",
@@ -160,6 +166,8 @@ def extract(text: str, item_name: str | None = None) -> dict[str, Any]:
 
     if re.search(SELF_DELAY_RE, flat):
         fields["urgency_cause_internal_delay"] = True
+        fields["self_created_urgency"] = True
+        fields["urgency_cause"] = "routine_delay"
         notes.append("내부 행정지연이 긴급사유로 제시되었을 가능성을 표시했습니다.")
     if re.search(SPLIT_HINT_RE, flat):
         fields["split_contract_risk"] = True

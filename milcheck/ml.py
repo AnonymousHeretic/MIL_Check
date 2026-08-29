@@ -43,6 +43,7 @@ SOLE_SOURCE_BASIS_TO_ARTICLE = {
     "compatibility": "령26-1-2사",
     "patented_no_substitute": "령26-1-2아",
     "single_supplier": "령26-1-2자",
+    "specific_technical_service": "령26-1-2차",
 }
 SMALL_AMOUNT_BASIS_TO_ARTICLE = {
     "general": "령26-1-5가(2)",
@@ -155,6 +156,7 @@ class MLAdvisor:
             "declared_article_probability": round(art_map.get(declared, 0.0), 4)
             if declared else None,
             "confident": confident,
+            "article_abstained": not confident,
             "signals": signals,
             "model_meta": {
                 "article": self.article.meta.get("metrics", {}),
