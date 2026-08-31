@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import html
-import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -121,6 +121,7 @@ border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);fon
 .finding{padding:10px 12px;border-left:4px solid var(--line);background:#f8fafc;margin:7px 0;border-radius:7px;font-size:13px}
 .finding.critical{border-color:var(--red)}.finding.warning{border-color:var(--amber)}.finding.pass{border-color:var(--green)}
 .kv{color:var(--muted);font-size:12px}.code{color:var(--muted);font-size:11px}
+.checklist{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.check-row{display:flex;gap:9px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px}.check-mark{font-size:17px;font-weight:800;line-height:1}.check-ok .check-mark{color:var(--green)}.check-missing{background:#fffaf0}.check-missing .check-mark{color:var(--amber)}.check-summary{margin-top:13px;font-weight:800;color:var(--amber)}
 ul{margin:0;padding-left:20px}li{margin:5px 0;font-size:13px}.callout{background:#eff6ff;border:1px solid #bfdbfe;
 padding:12px;border-radius:9px;color:#1e40af;font-size:13px}.footer{font-size:12px;color:var(--muted);margin-top:24px}
 """
@@ -144,12 +145,60 @@ FIELD_LABELS = {
     "urgency_cause_internal_delay": "긴급성이 내부 지연에서 비롯되었는지",
 }
 
+VALUE_LABELS = {
+    "goods": "물품",
+    "service": "용역",
+    "lease": "임대차",
+    "small_amount": "소액수의계약",
+    "sole_source": "수의계약",
+    "urgent_security": "긴급·보안 수의계약",
+    "post_tender": "공고 후 수의계약",
+    "compatibility": "기존 장비와의 호환성",
+    "general": "일반 소액수의",
+}
+
+EVIDENCE_LABELS = {
+    "price_reasonableness": "가격 적정성 조사",
+    "vendor_eligibility": "계약상대자 자격 확인",
+    "conflict_of_interest_check": "이해충돌 확인",
+    "no_artificial_split_review": "분할발주 검토",
+    "objective_market_search": "객관적 시장조사",
+    "no_substitute_analysis": "대체불가성 분석",
+    "installed_asset_spec": "기설치 장비 규격서",
+    "compatibility_evidence": "호환성 입증자료",
+    "audit_notification_plan": "감사원 통보 계획",
+    "at_least_one_quote": "1인 견적 자료",
+    "two_or_more_quotes": "2인 이상 견적 자료",
+    "electronic_quote_plan": "전자견적 계획",
+}
+
+FINDING_LABELS = {
+    "critical": "확인 필요",
+    "warning": "보완 필요",
+    "pass": "확인됨",
+    "info": "참고",
+}
+
+
+def display_value(value):
+    if isinstance(value, list):
+        return " · ".join(EVIDENCE_LABELS.get(x, x) for x in value)
+    if isinstance(value, bool):
+        return "예" if value else "아니오"
+    if isinstance(value, (int, float)) and value >= 100000:
+        return f"{value:,.0f}원 (부가세 제외)"
+    return VALUE_LABELS.get(value, value)
+
+
+def evidence_label(key: str) -> str:
+    return EVIDENCE_LABELS.get(key, key)
+
 def render_intake(intake: dict | None) -> str:
     if not intake:
         return ""
     rows = "".join(
-        f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(json.dumps(v, ensure_ascii=False) if isinstance(v,(list,dict)) else v)}</td>"
-        f"<td>{esc(intake.get('confidence',{}).get(k,'확인 필요'))}</td></tr>"
+        f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(display_value(v))}</td>"
+        f"<td>{'[확인]' if intake.get('confidence',{}).get(k) else '확인 필요'}</td></tr>"
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
@@ -158,31 +207,83 @@ def render_intake(intake: dict | None) -> str:
 <ul style="margin-top:10px">{notes}</ul>
 <div class="callout">이 값은 AI가 추출한 초안입니다. 실제 증빙과 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
 
-def render_findings(report: dict) -> str:
+def render_findings(report: dict, case: dict | None = None, raw_text: str = "") -> str:
     findings = "".join(
-        f"<div class='finding {esc(f['severity'])}'><b>{esc(f['severity'].upper())}</b> "
-        f"{esc(f['message'])}<br><span class='code'>{esc(f['code'])} · {esc(f['legal_basis'])}</span></div>"
+        f"<div class='finding {esc(f['severity'])}'><b>{esc(FINDING_LABELS.get(f['severity'], '확인'))}</b> "
+        f"{esc(f['message'])}<br><span class='code'>{esc(f['legal_basis'])}</span></div>"
         for f in report["findings"]
     )
-    missing = "".join(f"<li>{esc(x)}</li>" for x in report["missing_evidence"]) or "<li>없음</li>"
-    controls = "".join(f"<li>{esc(x)}</li>" for x in report["controls"]) or "<li>없음</li>"
+    case = case or {}
+    present = set(case.get("evidence", []))
+    missing_keys = set(report.get("missing_evidence", []))
+
+    if case.get("sole_source_basis") == "compatibility":
+        checklist_keys = [
+            "price_reasonableness", "vendor_eligibility", "installed_asset_spec",
+            "compatibility_evidence", "objective_market_search", "no_substitute_analysis",
+        ]
+    else:
+        checklist_keys = list(dict.fromkeys(sorted(present | missing_keys)))
+
+    checklist_rows = []
+    for key in checklist_keys:
+        checked = key in present and key not in missing_keys
+        label = evidence_label(key)
+        note = ""
+        if key == "compatibility_evidence" and re.search(r"업체\s*확인서", raw_text):
+            checked = False
+            note = " · 업체 확인서만 있음, 독립 자료 필요"
+        mark = "✓" if checked else "✗"
+        cls = "check-ok" if checked else "check-missing"
+        checklist_rows.append(
+            f"<div class='check-row {cls}'><span class='check-mark'>{mark}</span>"
+            f"<span>{esc(label)}{esc(note)}</span></div>"
+        )
+    checklist = "".join(checklist_rows)
+    checked_count = sum(
+        1 for key in checklist_keys
+        if key in present and key not in missing_keys
+        and not (key == "compatibility_evidence" and re.search(r"업체\s*확인서", raw_text))
+    )
+    missing_count = len(checklist_keys) - checked_count
+    procedures = "".join(
+        f"<li>{esc(x)}</li>" for x in report.get("controls", [])
+    ) or "<li>추가 절차 확인 없음</li>"
+    summary = (
+        f"<div class='check-summary'>{checked_count} / {len(checklist_keys)}종 확인 · "
+        f"{missing_count}종 보완 필요</div>"
+    ) if checklist_keys else ""
     return f"""<div class="card"><h2>3. 사전검토 결과 <span class="kv">규정 기준으로 확인한 결과</span></h2>
-{findings}</div><div class="grid"><div class="card"><h2>4. 추가로 필요한 자료</h2><ul>{missing}</ul></div>
-<div class="card"><h2>5. 담당자 확인사항</h2><ul>{controls}</ul></div></div>"""
+{findings}</div><div class="card"><h2>4. 요구 증빙 체크리스트 <span class="kv">근거: {esc(report.get('legal_ground','-'))}</span></h2>
+<div class="checklist">{checklist}</div>{summary}</div>
+<div class="card"><h2>5. 증빙 외 확인 절차</h2><ul>{procedures}</ul></div>"""
 
 def render_advisory(report: dict) -> str:
     adv = report.get("advisory") or {}
     signals = "".join(
-        f"<div class='finding {esc(s['severity'])}'><b>참고</b> {esc(s['message'])}"
-        f"<br><span class='code'>{esc(s['code'])}</span></div>" for s in adv.get("signals", [])
+        f"<div class='finding {esc(s['severity'])}'><b>참고</b> {esc(s['message'])}</div>"
+        for s in adv.get("signals", [])
     )
     ml = adv.get("ml") or {}
     methods = ", ".join(f"{esc(x['method'])} {x['probability']:.0%}" for x in ml.get("method_top_k",[])[:3])
-    extra = f"<div class='kv'>계약방법 추천: {methods}</div>" if methods else ""
-    return f"""<div class="card"><h2>6. 참고 자료와 유사 사례 <span class="kv">최종 판정과 구분되는 참고 정보</span></h2>
-{signals or '<div class="kv">표시할 참고 신호가 없습니다.</div>'}{extra}</div>"""
+    cd = adv.get("contract_data") or {}
+    similar = cd.get("similar_contracts") or []
+    similar_rows = "".join(
+        f"<tr><td>{esc(x.get('name','-'))}</td><td>{esc(x.get('method','-'))}</td></tr>"
+        for x in similar[:5]
+    )
+    table = (
+        f"<table><tr><th>유사 계약</th><th>계약방법</th></tr>{similar_rows}</table>"
+        if similar else ""
+    )
+    if not signals and not table and not methods:
+        return ""
+    extra = f"<div class='kv'>계약방법 후보: {esc(methods)}</div>" if methods else ""
+    return f"""<div class="card"><h2>6. 유사계약 참고 신호 <span class="kv">최종 판정과 구분되는 참고 정보</span></h2>
+{signals}{table}{extra}</div>"""
 
-def render_page(key: str, report: dict, intake: dict | None, text: str) -> str:
+def render_page(key: str, report: dict, intake: dict | None, text: str,
+                case: dict | None = None) -> str:
     buttons = "".join(
         f"<a class='btn {'on' if key == k else ''}' href='/?preset={k}'>{esc(v['label'])}</a>"
         for k, v in PRESETS.items()
@@ -201,10 +302,10 @@ def render_page(key: str, report: dict, intake: dict | None, text: str) -> str:
 <textarea name="text" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
 <div style="margin-top:10px"><button class="btn primary" type="submit">내용 이해하기</button>
 <a class="btn" href="/?preset={esc(key or 'small_ok')}">선택한 상황 다시 보기</a></div></form></div>
-{render_intake(intake)}
 <div class="card status"><div><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div></div>
 <span class="badge {esc(report['decision'])}">{esc(DECISION_KO.get(report['decision'], report['decision']))}</span></div>
-{render_findings(report)}{render_advisory(report)}
+{render_intake(intake)}
+{render_findings(report, case, text)}{render_advisory(report)}
 <div class="card"><h2>7. 시스템 역할 경계</h2><div class="callout">MIL-Check는 적법성이나 계약을 자동 승인하지 않습니다. 규칙 엔진이 확인 결과를 만들고,
 ML·검색·LLM은 참고 신호와 문서화를 제공합니다. 최종 판단과 결재는 담당자에게 있습니다.</div></div>
 <div class="footer">규정 기준일 {esc(report.get('rules_current_as_of','-'))} · 본 화면은 공개 규정·공개 계약데이터 기반 시제품입니다.</div>
@@ -227,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
             if key not in PRESETS: key = "small_ok"
             case = PRESETS[key]["case"]
         report = AGENT.review(case)
-        body = render_page(key, report, intake, text).encode("utf-8")
+        body = render_page(key, report, intake, text, case).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
