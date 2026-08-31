@@ -79,7 +79,7 @@ EVIDENCE_PATTERNS = {
     "price_reasonableness": r"가격\s*(적정|비교|산출)|시중가|단가\s*비교|가격조사",
     "vendor_eligibility": r"자격\s*(확인|증명)|사업자\s*등록|면허|소기업\s*확인|소상공인\s*확인",
     "conflict_of_interest_check": r"이해\s*충돌|이해관계|배제\s*사유\s*확인|청렴",
-    "no_artificial_split_review": r"분할\s*(검토|여부)|합산\s*검토|동일\s*사업\s*확인|동일\s*사업\s*추가\s*(구매|발주)\s*없",
+    "no_artificial_split_review": r"분할\s*(검토|여부)|합산\s*검토|동일\s*사업\s*확인|동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없",
     "objective_market_search": r"시장\s*조사|市場|공개\s*조사|조달\s*시장\s*확인|대체품\s*조사",
     "no_substitute_analysis": r"대체\s*(불가|불능)|대체품\s*(없|부재)|대체\s*가능성\s*분석",
     "installed_asset_spec": r"설치\s*자산|기존\s*설비\s*규격|현\s*장비\s*규격",
@@ -117,7 +117,7 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
     # '동일 사업 추가 구매 없음'은 분할발주 검토가 끝났다는 의미의
     # 긍정적 확인이므로 일반적인 '없음' 부정 처리에서 제외한다.
     if key == "no_artificial_split_review" and re.search(
-        r"동일\s*사업\s*추가\s*(구매|발주)\s*없", text
+        r"동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없", text
     ):
         return True
 
@@ -129,17 +129,10 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
         text.rfind("지만", 0, match.start()),
         text.rfind("그러나", 0, match.start()),
     ) + 1
-    before = text[clause_start:match.start()]
-    clause_end_candidates = [
-        p for p in (
-            text.find(".", match.end()),
-            text.find(",", match.end()),
-            text.find("지만", match.end()),
-            text.find("그러나", match.end()),
-        ) if p >= 0
-    ]
-    clause_end = min(clause_end_candidates) if clause_end_candidates else len(text)
-    after = text[match.end():clause_end]
+    before = text[max(clause_start, match.start() - 12):match.start()]
+    # 뒤에 이어진 다른 증빙의 '없음'이 앞 항목을 부정하지 않도록
+    # 부정 표현은 증빙 표현 바로 뒤의 짧은 구간에서만 확인한다.
+    after = text[match.end():match.end() + 18]
     return not NEGATED_EVIDENCE_RE.search(before + after)
 
 # 담당자가 스스로 밝힌 위험 신호
