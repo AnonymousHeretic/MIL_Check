@@ -141,6 +141,7 @@ FIELD_LABELS = {
     "electronic_quotes_planned": "전자견적 진행 여부",
     "split_contract_risk": "분할발주 가능성",
     "evidence": "현재 확인된 자료",
+    "item_name": "구매 품목",
     "alternatives_exist": "대체 가능한 업체·제품 존재 여부",
     "urgency_cause_internal_delay": "긴급성이 내부 지연에서 비롯되었는지",
 }
@@ -180,13 +181,15 @@ FINDING_LABELS = {
 }
 
 
-def display_value(value):
+def display_value(value, key: str = ""):
     if isinstance(value, list):
         return " · ".join(EVIDENCE_LABELS.get(x, x) for x in value)
     if isinstance(value, bool):
         return "예" if value else "아니오"
     if isinstance(value, (int, float)) and value >= 100000:
         return f"{value:,.0f}원 (부가세 제외)"
+    if key == "quote_count_planned":
+        return f"{value}인 견적"
     return VALUE_LABELS.get(value, value)
 
 
@@ -197,13 +200,13 @@ def render_intake(intake: dict | None) -> str:
     if not intake:
         return ""
     rows = "".join(
-        f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(display_value(v))}</td>"
+        f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(display_value(v, k))}</td>"
         f"<td>{'[확인]' if intake.get('confidence',{}).get(k) else '확인 필요'}</td></tr>"
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
     return f"""<div class="card"><h2>1. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
-<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>확인 상태</th></tr>{rows}</table>
+<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>담당자 확인</th></tr>{rows}</table>
 <ul style="margin-top:10px">{notes}</ul>
 <div class="callout">이 값은 AI가 추출한 초안입니다. 실제 증빙과 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
 
