@@ -302,7 +302,7 @@ def render_page(key: str, report: dict, intake: dict | None, text: str,
 <div class="card"><h2>검토할 계약 상황 선택</h2><div class="btns">{buttons}</div>
 <div class="hint">{esc(PRESETS.get(key,{}).get('hint','계약 상황을 선택하거나 아래에 직접 입력하십시오.'))}</div></div>
 <div class="card"><h2>0. 계약 상황을 문장으로 입력</h2><form method="get" action="/">
-<textarea name="text" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
+<textarea name="text" spellcheck="false" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
 <div style="margin-top:10px"><button class="btn primary" type="submit">내용 이해하기</button>
 <a class="btn" href="/?preset={esc(key or 'small_ok')}">선택한 상황 다시 보기</a></div></form></div>
 <div class="card status"><div><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div></div>
