@@ -154,6 +154,13 @@ class TestContractIndex(unittest.TestCase):
 
 
 class TestExtraction(unittest.TestCase):
+    def test_negated_market_search_is_not_counted_as_evidence(self):
+        result = extract(
+            "가격조사는 완료했지만 대체품 시장조사는 아직 못 했습니다."
+        )["fields"]
+        self.assertIn("price_reasonableness", result.get("evidence", []))
+        self.assertNotIn("objective_market_search", result.get("evidence", []))
+
     def test_korean_compound_numerals(self):
         self.assertEqual(parse_amount("1,800만 원"), 18_000_000)
         self.assertEqual(parse_amount("6천만원"), 60_000_000)
