@@ -312,13 +312,6 @@ def render_findings(report: dict, case: dict | None = None) -> str:
         f"{esc(f['message'])}<br><span class='code'>{esc(f['legal_basis'])}</span></div>"
         for f in ordered
     )
-    # 금액·기준 충족(초록)과 증빙 누락(주황)을 같은 층위로 읽지 않도록 구분한다.
-    layer_note = ""
-    if report["decision"] != "PASS_WITH_CONTROLS" and any(
-            f["severity"] == "pass" for f in ordered):
-        layer_note = ("<div class='callout' style='margin-top:10px'>초록색 항목은 개별 기준을 "
-                      "충족했다는 뜻이며, 최종 판정은 아래 보완 항목까지 반영한 결과입니다.</div>")
-
     items = build_checklist(report, case)
     checklist_rows = "".join(
         "<div class='check-row {cls}'><span class='check-mark'>{mark}</span>"
@@ -331,11 +324,11 @@ def render_findings(report: dict, case: dict | None = None) -> str:
     )
     checked_count = sum(1 for x in items if x["confirmed"])
     partial_count = sum(1 for x in items if x["partial"])
-    missing_count = len(items) - checked_count
+    unmet_count = len(items) - checked_count - partial_count
     summary = (
-        f"<div class='check-summary'>{checked_count} / {len(items)}종 확인 · "
-        f"{missing_count}종 보완 필요"
-        + (f" (그중 {partial_count}종은 업체 확인서만 확보)" if partial_count else "")
+        f"<div class='check-summary'>{checked_count}종 충족 · "
+        f"{unmet_count}종 미충족 · {partial_count}종 점검 불가"
+        + (" (업체 확인서만 확보된 항목 포함)" if partial_count else "")
         + "</div>"
     )
     checklist_card = (
@@ -350,8 +343,20 @@ def render_findings(report: dict, case: dict | None = None) -> str:
 <ul>{procedures}</ul></div>"""
         if procedures else ""
     )
+    input_card = ""
+    if report["decision"] == "NEEDS_INPUT":
+        required = ["계약 대상", "추정가격", "검토 사유"]
+        rows = "".join(
+            f"<div class='check-row check-unassessed'><span class='check-mark'>?</span>"
+            f"<span>{esc(label)} · 입력 부족</span></div>"
+            for label in required
+        )
+        input_card = (
+            f"""<div class="card"><h2>4. 점검 가능 여부</h2>
+{rows}<div class="check-summary">0종 충족 · 0종 미충족 · {len(required)}종 점검 불가</div></div>"""
+        )
     return f"""<div class="card"><h2>3. 사전검토 결과 <span class="kv">규정 기준으로 확인한 결과</span></h2>
-{findings}{layer_note}</div>{checklist_card}{procedure_card}"""
+{findings}</div>{checklist_card}{input_card}{procedure_card}"""
 
 
 def render_advisory(report: dict) -> str:
