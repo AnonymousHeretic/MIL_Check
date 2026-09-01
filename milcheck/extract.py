@@ -80,7 +80,7 @@ EVIDENCE_PATTERNS = {
     # 실무 문장은 '자격은 확인했다'처럼 조사가 끼어들므로 조사를 허용한다.
     "vendor_eligibility": r"자격[은는이가을를도]?\s*(확인|증명)|사업자\s*등록|면허|소기업\s*확인|소상공인\s*확인",
     "conflict_of_interest_check": r"이해\s*충돌|이해관계|배제\s*사유\s*확인|청렴",
-    "no_artificial_split_review": r"분할\s*(?:발주\s*)?(검토|여부)|합산\s*검토|동일\s*사업\s*확인|동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없",
+    "no_artificial_split_review": r"분할\s*(?:발주\s*)?(검토|여부)|합산\s*검토|동일\s*사업\s*확인|동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없|최근\s*\d+\s*(?:개월|개월간|월|일)\s*(?:간)?\s*동일\s*(?:품목|물품|사업)\s*(?:발주|구매|계약)\s*(?:는\s*)?없|동일\s*(?:품목|물품|사업).{0,12}(?:발주|구매|계약).{0,10}없",
     "objective_market_search": r"시장\s*조사|市場|공개\s*조사|조달\s*시장\s*확인|대체품\s*조사",
     "no_substitute_analysis": r"대체\s*(불가|불능)|대체품\s*(없|부재)|대체\s*가능성\s*분석",
     "installed_asset_spec": r"설치\s*자산|기존\s*설비\s*규격|현\s*장비\s*규격",
@@ -176,15 +176,21 @@ def extract(text: str, item_name: str | None = None) -> dict[str, Any]:
     elif re.search(r"구매|구입|납품|물품|장비|자재|비품", flat):
         fields["contract_category"] = "goods"
 
-    for ptype, basis, pattern in TYPE_PATTERNS:
-        if re.search(pattern, flat):
-            fields["proposed_type"] = ptype
-            if ptype == "sole_source":
-                fields["sole_source_basis"] = basis
-            elif ptype == "urgent_security":
-                fields["urgent_security_basis"] = basis
-            confidence["proposed_type"] = "medium"
-            break
+    # 사용자가 계약 방식을 명시한 경우 단순한 "급하게" 같은 상황 표현보다 우선한다.
+    if re.search(r"소액\s*수의(?:계약)?|소액수의", flat):
+        fields["proposed_type"] = "small_amount"
+        fields["small_amount_basis"] = "general"
+        confidence["proposed_type"] = "high"
+    else:
+        for ptype, basis, pattern in TYPE_PATTERNS:
+            if re.search(pattern, flat):
+                fields["proposed_type"] = ptype
+                if ptype == "sole_source":
+                    fields["sole_source_basis"] = basis
+                elif ptype == "urgent_security":
+                    fields["urgent_security_basis"] = basis
+                confidence["proposed_type"] = "medium"
+                break
     if "proposed_type" not in fields and amount and amount <= 20_000_000:
         fields["proposed_type"] = "small_amount"
         fields["small_amount_basis"] = "general"
