@@ -115,7 +115,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600}.num{text-align:right}
 .status{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 .badge{padding:8px 12px;border-radius:9px;font-weight:800;font-size:14px}
-.PASS_WITH_CONTROLS{background:#dcfce7;color:var(--green)}.NEEDS_EVIDENCE{background:#fef3c7;color:var(--amber)}
+.PASS_WITH_CONTROLS{background:#dcfce7;color:var(--green)}.NEEDS_EVIDENCE{background:#fef3c7;color:var(--amber)}.NEEDS_INPUT{background:#e2e8f0;color:var(--gray)}
 .REJECT_GROUND{background:#fee2e2;color:var(--red)}.OUT_OF_SCOPE{background:#e2e8f0;color:var(--gray)}
 .finding{padding:10px 12px;border-left:4px solid var(--line);background:#f8fafc;margin:7px 0;border-radius:7px;font-size:13px}
 .finding.critical{border-color:var(--red)}.finding.warning{border-color:var(--amber)}.finding.pass{border-color:var(--green)}
