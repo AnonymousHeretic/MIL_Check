@@ -335,7 +335,7 @@ class TestDemoRendering(unittest.TestCase):
                 self.assertNotIn("요구 증빙 체크리스트", text)
                 continue
             checked = sum(1 for x in items if x["confirmed"])
-            self.assertIn(f"{checked} / {len(items)}종 확인", text)
+            self.assertIn(f"{checked}종 충족", text)
             self.assertEqual(text.count("✓"),
                              checked + 1)  # 체크리스트 항목 + 범례 1회
 
