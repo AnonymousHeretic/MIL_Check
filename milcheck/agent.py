@@ -32,6 +32,7 @@ DECISION_KO = {
     "NEEDS_EVIDENCE": "보완 필요 — 증빙 또는 절차 누락",
     "REJECT_GROUND": "제안 사유 부적합 — 경쟁절차 또는 다른 근거 검토",
     "OUT_OF_SCOPE": "현재 판정 범위 밖 — 전문 검토 필요",
+    "NEEDS_INPUT": "입력 부족 — 추가 정보 필요",
 }
 
 
