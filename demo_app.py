@@ -120,7 +120,7 @@ border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);fon
 .finding{padding:10px 12px;border-left:4px solid var(--line);background:#f8fafc;margin:7px 0;border-radius:7px;font-size:13px}
 .finding.critical{border-color:var(--red)}.finding.warning{border-color:var(--amber)}.finding.pass{border-color:var(--green)}
 .kv{color:var(--muted);font-size:12px}.code{color:var(--muted);font-size:11px}
-.checklist{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.check-row{display:flex;gap:9px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px}.check-mark{font-size:17px;font-weight:800;line-height:1}.check-ok .check-mark{color:var(--green)}.check-partial{background:#fff7ed}.check-partial .check-mark{color:var(--amber)}.check-missing{background:#fffaf0}.check-missing .check-mark{color:var(--amber)}.check-summary{margin-top:13px;font-weight:800;color:var(--amber)}
+.checklist{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.check-row{display:flex;gap:9px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px}.check-mark{font-size:17px;font-weight:800;line-height:1}.check-ok .check-mark{color:var(--green)}.check-partial{background:#fff7ed}.check-partial .check-mark{color:var(--amber)}.check-missing{background:#fffaf0}.check-missing .check-mark{color:var(--amber)}.check-unassessed{background:#f8fafc}.check-unassessed .check-mark{color:var(--muted)}.check-summary{margin-top:13px;font-weight:800;color:var(--amber)}
 ul{margin:0;padding-left:20px}li{margin:5px 0;font-size:13px}.callout{background:#eff6ff;border:1px solid #bfdbfe;
 padding:12px;border-radius:9px;color:#1e40af;font-size:13px}.footer{font-size:12px;color:var(--muted);margin-top:24px}
 """
@@ -226,10 +226,10 @@ EVIDENCE_LABELS = {
 }
 
 FINDING_LABELS = {
-    "critical": "확인 필요",
-    "warning": "보완 필요",
-    "pass": "확인됨",
-    "info": "참고",
+    "critical": "조건",
+    "warning": "확인",
+    "pass": "기준",
+    "info": "정보",
 }
 
 
@@ -253,9 +253,9 @@ def evidence_label(key: str) -> str:
 SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2, "pass": 3}
 
 CONFIDENCE_LABELS = {
-    "high": "문장에 명시됨 · 확인 필요",
-    "medium": "AI 추정값 · 확인 필요",
-    "low": "AI 추정값 · 반드시 확인",
+    "high": "문장에 명시됨",
+    "medium": "문장에서 인식",
+    "low": "AI 추정값",
 }
 
 
@@ -264,12 +264,12 @@ def render_intake(intake: dict | None) -> str:
         return ""
     rows = "".join(
         f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(display_value(v, k))}</td>"
-        f"<td>{esc(CONFIDENCE_LABELS.get(intake.get('confidence', {}).get(k), '문장에서 인식 · 확인 필요'))}</td></tr>"
+        f"<td>{esc(CONFIDENCE_LABELS.get(intake.get('confidence', {}).get(k), ''))}</td></tr>"
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
     return f"""<div class="card"><h2>2. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
-<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>담당자 확인</th></tr>{rows}</table>
+<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>확인</th></tr>{rows}</table>
 <ul style="margin-top:10px">{notes}</ul>
 <div class="callout">이 값은 AI가 추출한 초안입니다. 여기 적힌 내용은 담당자의 진술일 뿐 증빙 파일을
 검증한 결과가 아니므로, 실제 자료와 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
@@ -362,6 +362,9 @@ def render_advisory(report: dict) -> str:
     )
     cd = adv.get("contract_data") or {}
     similar = cd.get("similar_contracts") or []
+    if report.get("decision") == "NEEDS_INPUT":
+        # 핵심 입력이 없을 때 유사계약을 제시하면 임의의 품명으로 검색한 것처럼 보인다.
+        return ""
     if not similar and not signals:
         # 표시할 참고 정보가 없으면 빈 카드를 만들지 않는다.
         return ""
