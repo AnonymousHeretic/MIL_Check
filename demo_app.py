@@ -73,7 +73,7 @@ PRESETS = {
     },
     "out_scope": {
         "label": "공사 계약",
-        "hint": "현재 MVP가 최종 판정하지 않는 계약 유형입니다",
+        "hint": "현재 판정 범위에서 최종 판정하지 않는 계약 유형입니다",
         "case": {
             "case_id": "DEMO-E", "item_name": "부대 배관 공사",
             "description": "부대 내 배관 공사", "contract_category": "construction",
