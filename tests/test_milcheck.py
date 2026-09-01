@@ -361,3 +361,18 @@ class TestDemoRendering(unittest.TestCase):
                     for s in self.agent.review(case)["advisory"]["signals"]]
         self.assertTrue(any("제한경쟁으로" in m for m in messages))
         self.assertFalse(any("제한경쟁로" in m for m in messages))
+
+class TestRecentFixes(unittest.TestCase):
+    def test_insufficient_input_is_not_out_of_scope(self):
+        agent = MilCheckAgent(use_ml=False, use_contract_index=False)
+        report = agent.review(extract("뭐 좀 사려고 하는데요.")["fields"])
+        self.assertEqual(report["decision"], "NEEDS_INPUT")
+        self.assertNotIn("OUT_OF_SCOPE", report["legal_ground"])
+
+    def test_recent_same_item_statement_counts_as_split_review(self):
+        fields = extract("복사용지 구매입니다. 최근 6개월간 동일 품목 발주는 없습니다.")["fields"]
+        self.assertIn("no_artificial_split_review", fields.get("evidence", []))
+
+    def test_explicit_small_amount_wins_over_urgency_word(self):
+        fields = extract("사무실 에어컨 구매입니다. 5,200만원이고 급하게 소액수의계약으로 진행합니다.")["fields"]
+        self.assertEqual(fields.get("proposed_type"), "small_amount")
