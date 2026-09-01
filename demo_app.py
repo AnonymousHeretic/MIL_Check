@@ -393,6 +393,26 @@ def render_advisory(report: dict) -> str:
     return f"""<div class="card"><h2>6. 유사계약 참고 신호 <span class="kv">최종 판정과 구분되는 참고 정보</span></h2>
 {signals}{table}{extra}</div>"""
 
+def decision_message(report: dict) -> str:
+    """상단에만 판정 이유와 다음 확인 위치를 표시한다."""
+    decision = report.get("decision")
+    if decision == "NEEDS_INPUT":
+        return "필수 입력이 부족합니다. 계약 대상·추정가격·검토 사유를 입력하십시오. → 4번"
+    if decision == "REJECT_GROUND":
+        critical = next(
+            (f.get("message") for f in report.get("findings", [])
+             if f.get("severity") == "critical"),
+            "제안된 계약 방식의 요건을 충족하지 않습니다.",
+        )
+        return f"{critical} → 3번"
+    if decision == "NEEDS_EVIDENCE":
+        count = len(report.get("missing_evidence", []))
+        return f"요구 증빙 {count}종이 확인되지 않았습니다. → 4번 체크리스트"
+    if decision == "OUT_OF_SCOPE":
+        return "현재 판정 범위에 포함되지 않는 계약 유형입니다. → 전문 검토"
+    return "입력된 규정 조건을 충족했습니다. → 4번 체크리스트에서 최종 확인"
+
+
 def render_page(key: str, report: dict, intake: dict | None, text: str,
                 case: dict | None = None) -> str:
     buttons = "".join(
@@ -413,7 +433,8 @@ def render_page(key: str, report: dict, intake: dict | None, text: str,
 <textarea name="text" spellcheck="false" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
 <div style="margin-top:10px"><button class="btn primary" type="submit">내용 이해하기</button>
 <a class="btn" href="/?preset={esc(key or 'small_ok')}">선택한 상황 다시 보기</a></div></form></div>
-<div class="card status"><div><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div></div>
+<div class="card status"><div style="flex:1;min-width:260px"><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div>
+<div style="margin-top:8px;font-size:13px"><b>핵심 확인:</b> {esc(decision_message(report))}</div></div>
 <span class="badge {esc(report['decision'])}">{esc(DECISION_KO.get(report['decision'], report['decision']))}</span></div>
 {render_intake(intake)}
 {render_findings(report, case)}{render_advisory(report)}
