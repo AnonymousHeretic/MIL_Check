@@ -52,18 +52,39 @@ class RuleEngine:
 
     def evaluate(self, case: dict[str, Any]) -> Evaluation:
         proposed_type = str(case.get("proposed_type", ""))
+        # 정보 부족은 지원 범위 밖 계약과 구분한다. 핵심 입력이 없으면 판정을 보류한다.
+        missing_core = [
+            not case.get("item_name"),
+            not case.get("contract_category"),
+            not isinstance(case.get("estimated_price_krw_ex_vat"), (int, float)),
+            not proposed_type,
+        ]
+        if any(missing_core):
+            return Evaluation(
+                decision="NEEDS_INPUT",
+                proposed_type=proposed_type,
+                legal_ground="계약 정보 부족 — 추가 입력 필요",
+                findings=[
+                    self._finding(
+                        "INPUT-INCOMPLETE",
+                        "warning",
+                        "품명·계약 대상·추정가격·검토 사유를 입력해야 규칙 점검을 시작할 수 있습니다.",
+                        "입력 정보 확인",
+                    )
+                ],
+            )
         if case.get("contract_category") not in {"goods", "service", "lease"} or (
             case.get("contract_category") == "lease" and proposed_type != "lease"):
             return Evaluation(
                 decision="OUT_OF_SCOPE",
                 proposed_type=proposed_type,
-                legal_ground="초기 MVP는 국가계약법상 물품·용역만 지원",
+                legal_ground="현재 판정 범위는 국가계약법상 물품·용역",
                 findings=[
                     self._finding(
                         "SCOPE-001",
                         "info",
                         "공사·임대차·매각·방위사업법 특례 계약은 별도 규칙팩이 필요합니다.",
-                        "MIL-Check MVP 범위",
+                        "MIL-Check 현재 판정 범위",
                     )
                 ],
             )
