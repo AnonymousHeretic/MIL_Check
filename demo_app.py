@@ -268,7 +268,7 @@ def render_intake(intake: dict | None) -> str:
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
-    return f"""<div class="card"><h2>1. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
+    return f"""<div class="card"><h2>2. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
 <table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>담당자 확인</th></tr>{rows}</table>
 <ul style="margin-top:10px">{notes}</ul>
 <div class="callout">이 값은 AI가 추출한 초안입니다. 여기 적힌 내용은 담당자의 진술일 뿐 증빙 파일을
@@ -401,7 +401,7 @@ def render_page(key: str, report: dict, intake: dict | None, text: str,
 <div class="workflow"><span class="step {active}">① 입력</span><span class="step {'done' if intake else ''}">② 내용 확인</span><span class="step {'done' if intake or key else ''}">③ 사전검토</span><span class="step">④ 근거와 확인사항</span></div>
 <div class="card"><h2>검토할 계약 상황 선택</h2><div class="btns">{buttons}</div>
 <div class="hint">{esc(PRESETS.get(key,{}).get('hint','계약 상황을 선택하거나 아래에 직접 입력하십시오.'))}</div></div>
-<div class="card"><h2>0. 계약 상황을 문장으로 입력</h2><form method="get" action="/">
+<div class="card"><h2>1. 계약 상황을 문장으로 입력</h2><form method="get" action="/">
 <textarea name="text" spellcheck="false" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
 <div style="margin-top:10px"><button class="btn primary" type="submit">내용 이해하기</button>
 <a class="btn" href="/?preset={esc(key or 'small_ok')}">선택한 상황 다시 보기</a></div></form></div>
