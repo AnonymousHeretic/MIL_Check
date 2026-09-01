@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .linear_model import LinearTextClassifier, make_text
+from .linear_model import LinearTextClassifier, make_text, with_eulro
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -153,7 +153,7 @@ class MLAdvisor:
                 "code": "ML-METHOD-CONFLICT",
                 "severity": "warning",
                 "message": (
-                    f"유사한 품명·금액대의 계약은 「{top_method}」으로 체결된 경우가 많습니다"
+                    f"유사한 품명·금액대의 계약은 {with_eulro(top_method)} 체결된 경우가 많습니다"
                     f"(확률 {method_p:.0%}). 경쟁 가능성을 재검토하십시오."
                 ),
             })

@@ -136,3 +136,14 @@ class LinearTextClassifier:
             {"class": c, "probability": round(p, 4), "label": self.class_labels.get(c, c)}
             for c, p in self.predict_proba(text)[:k]
         ]
+
+
+def with_eulro(word: str) -> str:
+    """받침 유무에 맞는 '으로/로' 조사를 붙인다. ('제한경쟁로' 같은 표시 오류 방지)"""
+    if not word:
+        return word
+    last = word[-1]
+    if "가" <= last <= "힣":
+        jong = (ord(last) - 0xAC00) % 28
+        return word + ("로" if jong in (0, 8) else "으로")
+    return word + "으로"

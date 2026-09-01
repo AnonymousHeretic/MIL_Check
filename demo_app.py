@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import html
-import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -121,7 +120,7 @@ border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);fon
 .finding{padding:10px 12px;border-left:4px solid var(--line);background:#f8fafc;margin:7px 0;border-radius:7px;font-size:13px}
 .finding.critical{border-color:var(--red)}.finding.warning{border-color:var(--amber)}.finding.pass{border-color:var(--green)}
 .kv{color:var(--muted);font-size:12px}.code{color:var(--muted);font-size:11px}
-.checklist{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.check-row{display:flex;gap:9px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px}.check-mark{font-size:17px;font-weight:800;line-height:1}.check-ok .check-mark{color:var(--green)}.check-missing{background:#fffaf0}.check-missing .check-mark{color:var(--amber)}.check-summary{margin-top:13px;font-weight:800;color:var(--amber)}
+.checklist{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.check-row{display:flex;gap:9px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px}.check-mark{font-size:17px;font-weight:800;line-height:1}.check-ok .check-mark{color:var(--green)}.check-partial{background:#fff7ed}.check-partial .check-mark{color:var(--amber)}.check-missing{background:#fffaf0}.check-missing .check-mark{color:var(--amber)}.check-summary{margin-top:13px;font-weight:800;color:var(--amber)}
 ul{margin:0;padding-left:20px}li{margin:5px 0;font-size:13px}.callout{background:#eff6ff;border:1px solid #bfdbfe;
 padding:12px;border-radius:9px;color:#1e40af;font-size:13px}.footer{font-size:12px;color:var(--muted);margin-top:24px}
 """
@@ -144,6 +143,11 @@ FIELD_LABELS = {
     "item_name": "구매 품목",
     "alternatives_exist": "대체 가능한 업체·제품 존재 여부",
     "urgency_cause_internal_delay": "긴급성이 내부 지연에서 비롯되었는지",
+    "self_created_urgency": "긴급성을 발주기관이 자초했는지",
+    "urgency_cause": "긴급성이 발생한 원인",
+    "vendor_attestation_only": "업체 확인서만 확보된 상태",
+    "contract_month": "계약 예정 시기",
+    "case_id": "검토 번호",
 }
 
 VALUE_LABELS = {
@@ -156,6 +160,28 @@ VALUE_LABELS = {
     "post_tender": "공고 후 수의계약",
     "compatibility": "기존 장비와의 호환성",
     "general": "일반 소액수의",
+    "construction": "공사",
+    "designated_product": "지정제품 수의계약",
+    "patented_no_substitute": "특허·실용신안 등 대체 불가",
+    "original_supplier_direct_service": "원공급자의 직접 설치·정비",
+    "single_supplier": "유일한 생산자·공급자",
+    "specific_technical_service": "특정 기술·자격이 필요한 용역",
+    "urgent": "긴급한 수요",
+    "security": "보안상 필요",
+    "failed_tender": "입찰 유찰·재공고 후",
+    "designated": "지정·인증 제품",
+    "lease": "임대차",
+    "routine_delay": "통상적인 행정지연",
+    "budget_exhaustion": "연말 예산소진",
+    "small_enterprise_or_small_business": "소기업·소상공인",
+    "supported_enterprise": "여성·장애인·사회적경제 기업",
+    "youth_startup": "청년창업기업",
+    "special_knowledge": "특수한 지식·기술이 필요한 경우",
+    "small_enterprise": "소기업",
+    "small_business": "소상공인",
+    "women_business": "여성기업",
+    "disabled_business": "장애인기업",
+    "qualified_social_economy": "사회적경제 기업",
 }
 
 EVIDENCE_LABELS = {
@@ -171,6 +197,32 @@ EVIDENCE_LABELS = {
     "at_least_one_quote": "1인 견적 자료",
     "two_or_more_quotes": "2인 이상 견적 자료",
     "electronic_quote_plan": "전자견적 계획",
+    "unforeseeable_event_record": "예측 불가능한 사유 기록",
+    "immediate_deadline_record": "촉박한 이행시기 입증자료",
+    "competition_time_infeasible": "경쟁절차 소요기간 부족 소명",
+    "scope_limited_to_necessity": "필요 최소 범위 한정 자료",
+    "security_basis_record": "보안상 필요성 근거 기록",
+    "scope_limited_to_security_need": "보안 필요 범위 한정 자료",
+    "disclosure_risk_analysis": "공개 시 위험 분석",
+    "supplier_security_safeguards": "공급자 보안대책 확인",
+    "objective_need_definition": "객관적 소요 정의서",
+    "registration_certificate": "특허·등록 증명서",
+    "registration_validity": "권리 유효기간 확인",
+    "original_supplier_proof": "원공급자 증명자료",
+    "direct_service_necessity": "직접 시공·정비 필요성 소명",
+    "single_supplier_evidence": "유일 공급자 입증자료",
+    "unique_qualification_evidence": "특수 자격·경험 증명",
+    "scope_necessity": "용역 범위 필요성 소명",
+    "alternative_experts_search": "대체 전문업체 조사",
+    "tender_failure_record": "유찰 기록",
+    "re_tender_record": "재공고 기록",
+    "competition_review": "경쟁 가능성 검토자료",
+    "designation_certificate": "지정·인증 증서",
+    "certificate_validity": "인증 유효기간 확인",
+    "lease_necessity": "임차 필요성 소명",
+    "incident_log": "사건·고장 경위서",
+    "security_risk_analysis": "보안 위험 분석",
+    "urgency_causation": "긴급사유 입증자료",
 }
 
 FINDING_LABELS = {
@@ -196,70 +248,111 @@ def display_value(value, key: str = ""):
 def evidence_label(key: str) -> str:
     return EVIDENCE_LABELS.get(key, key)
 
+
+# 판정과 세부 결과를 같은 층위로 보이지 않게 심각한 항목부터 배치한다.
+SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2, "pass": 3}
+
+CONFIDENCE_LABELS = {
+    "high": "문장에 명시됨 · 확인 필요",
+    "medium": "AI 추정값 · 확인 필요",
+    "low": "AI 추정값 · 반드시 확인",
+}
+
+
 def render_intake(intake: dict | None) -> str:
     if not intake:
         return ""
     rows = "".join(
         f"<tr><td>{esc(FIELD_LABELS.get(k, k))}</td><td>{esc(display_value(v, k))}</td>"
-        f"<td>{'[확인]' if intake.get('confidence',{}).get(k) else '확인 필요'}</td></tr>"
+        f"<td>{esc(CONFIDENCE_LABELS.get(intake.get('confidence', {}).get(k), '문장에서 인식 · 확인 필요'))}</td></tr>"
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
     return f"""<div class="card"><h2>1. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
 <table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>담당자 확인</th></tr>{rows}</table>
 <ul style="margin-top:10px">{notes}</ul>
-<div class="callout">이 값은 AI가 추출한 초안입니다. 실제 증빙과 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
+<div class="callout">이 값은 AI가 추출한 초안입니다. 여기 적힌 내용은 담당자의 진술일 뿐 증빙 파일을
+검증한 결과가 아니므로, 실제 자료와 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
 
-def render_findings(report: dict, case: dict | None = None, raw_text: str = "") -> str:
+
+def build_checklist(report: dict, case: dict | None = None) -> list[dict]:
+    """요구 증빙 체크리스트 항목을 만든다. 규칙 엔진이 요구한 항목을 빠짐없이 표시한다.
+
+    보완이 필요한 항목을 먼저, 확인된 항목을 뒤에 두어 모든 사례에서 순서를 일정하게
+    유지한다. 업체 확인서만 있는 항목은 ✓/✗ 어느 쪽으로도 세지 않고 따로 표시한다.
+    """
+    case = case or {}
+    present = set(case.get("evidence", []))
+    missing = set(report.get("missing_evidence", []))
+    attestation_only = bool(case.get("vendor_attestation_only"))
+
+    items = []
+    for key in present | missing:
+        confirmed = key in present and key not in missing
+        note = ""
+        if attestation_only and key == "compatibility_evidence":
+            confirmed = False
+            note = " · 업체 확인서만 확보(독립 자료 아님)"
+        items.append({
+            "key": key,
+            "label": evidence_label(key),
+            "confirmed": confirmed,
+            "partial": bool(note),
+            "note": note,
+        })
+    items.sort(key=lambda x: (x["confirmed"], x["label"]))
+    return items
+
+
+def render_findings(report: dict, case: dict | None = None) -> str:
+    ordered = sorted(report["findings"],
+                     key=lambda f: SEVERITY_ORDER.get(f["severity"], 9))
     findings = "".join(
         f"<div class='finding {esc(f['severity'])}'><b>{esc(FINDING_LABELS.get(f['severity'], '확인'))}</b> "
         f"{esc(f['message'])}<br><span class='code'>{esc(f['legal_basis'])}</span></div>"
-        for f in report["findings"]
+        for f in ordered
     )
-    case = case or {}
-    present = set(case.get("evidence", []))
-    missing_keys = set(report.get("missing_evidence", []))
+    # 금액·기준 충족(초록)과 증빙 누락(주황)을 같은 층위로 읽지 않도록 구분한다.
+    layer_note = ""
+    if report["decision"] != "PASS_WITH_CONTROLS" and any(
+            f["severity"] == "pass" for f in ordered):
+        layer_note = ("<div class='callout' style='margin-top:10px'>초록색 항목은 개별 기준을 "
+                      "충족했다는 뜻이며, 최종 판정은 아래 보완 항목까지 반영한 결과입니다.</div>")
 
-    if case.get("sole_source_basis") == "compatibility":
-        checklist_keys = [
-            "price_reasonableness", "vendor_eligibility", "installed_asset_spec",
-            "compatibility_evidence", "objective_market_search", "no_substitute_analysis",
-        ]
-    else:
-        checklist_keys = list(dict.fromkeys(sorted(present | missing_keys)))
-
-    checklist_rows = []
-    for key in checklist_keys:
-        checked = key in present and key not in missing_keys
-        label = evidence_label(key)
-        note = ""
-        if key == "compatibility_evidence" and re.search(r"업체\s*확인서", raw_text):
-            checked = False
-            note = " · 업체 확인서만 있음, 독립 자료 필요"
-        mark = "✓" if checked else "✗"
-        cls = "check-ok" if checked else "check-missing"
-        checklist_rows.append(
-            f"<div class='check-row {cls}'><span class='check-mark'>{mark}</span>"
-            f"<span>{esc(label)}{esc(note)}</span></div>"
-        )
-    checklist = "".join(checklist_rows)
-    checked_count = sum(
-        1 for key in checklist_keys
-        if key in present and key not in missing_keys
-        and not (key == "compatibility_evidence" and re.search(r"업체\s*확인서", raw_text))
+    items = build_checklist(report, case)
+    checklist_rows = "".join(
+        "<div class='check-row {cls}'><span class='check-mark'>{mark}</span>"
+        "<span>{label}{note}</span></div>".format(
+            cls=("check-ok" if x["confirmed"]
+                 else "check-partial" if x["partial"] else "check-missing"),
+            mark=("✓" if x["confirmed"] else "△" if x["partial"] else "✗"),
+            label=esc(x["label"]), note=esc(x["note"]))
+        for x in items
     )
-    missing_count = len(checklist_keys) - checked_count
-    procedures = "".join(
-        f"<li>{esc(x)}</li>" for x in report.get("controls", [])
-    ) or "<li>추가 절차 확인 없음</li>"
+    checked_count = sum(1 for x in items if x["confirmed"])
+    partial_count = sum(1 for x in items if x["partial"])
+    missing_count = len(items) - checked_count
     summary = (
-        f"<div class='check-summary'>{checked_count} / {len(checklist_keys)}종 확인 · "
-        f"{missing_count}종 보완 필요</div>"
-    ) if checklist_keys else ""
+        f"<div class='check-summary'>{checked_count} / {len(items)}종 확인 · "
+        f"{missing_count}종 보완 필요"
+        + (f" (그중 {partial_count}종은 업체 확인서만 확보)" if partial_count else "")
+        + "</div>"
+    )
+    checklist_card = (
+        f"""<div class="card"><h2>4. 요구 증빙 체크리스트 <span class="kv">근거: {esc(report.get('legal_ground','-'))}</span></h2>
+<div class="checklist">{checklist_rows}</div>{summary}
+<div class="kv" style="margin-top:8px">✓ 담당자가 확보했다고 밝힌 자료 · △ 업체 확인서만 확보 · ✗ 아직 확인되지 않은 자료</div></div>"""
+        if items else ""
+    )
+    procedures = "".join(f"<li>{esc(x)}</li>" for x in report.get("controls", []))
+    procedure_card = (
+        f"""<div class="card"><h2>5. 증빙 외 확인 절차 <span class="kv">체크리스트와 별개로 이행할 절차</span></h2>
+<ul>{procedures}</ul></div>"""
+        if procedures else ""
+    )
     return f"""<div class="card"><h2>3. 사전검토 결과 <span class="kv">규정 기준으로 확인한 결과</span></h2>
-{findings}</div><div class="card"><h2>4. 요구 증빙 체크리스트 <span class="kv">근거: {esc(report.get('legal_ground','-'))}</span></h2>
-<div class="checklist">{checklist}</div>{summary}</div>
-<div class="card"><h2>5. 증빙 외 확인 절차</h2><ul>{procedures}</ul></div>"""
+{findings}{layer_note}</div>{checklist_card}{procedure_card}"""
+
 
 def render_advisory(report: dict) -> str:
     adv = report.get("advisory") or {}
@@ -267,21 +360,28 @@ def render_advisory(report: dict) -> str:
         f"<div class='finding {esc(s['severity'])}'><b>참고</b> {esc(s['message'])}</div>"
         for s in adv.get("signals", [])
     )
-    ml = adv.get("ml") or {}
-    methods = ", ".join(f"{esc(x['method'])} {x['probability']:.0%}" for x in ml.get("method_top_k",[])[:3])
     cd = adv.get("contract_data") or {}
     similar = cd.get("similar_contracts") or []
+    if not similar and not signals:
+        # 표시할 참고 정보가 없으면 빈 카드를 만들지 않는다.
+        return ""
     similar_rows = "".join(
         f"<tr><td>{esc(x.get('name','-'))}</td><td>{esc(x.get('method','-'))}</td></tr>"
         for x in similar[:5]
     )
     table = (
+        f"<div class='kv' style='margin-top:10px'>같은 품목군의 공개 계약 {len(similar[:5])}건입니다.</div>"
         f"<table><tr><th>유사 계약</th><th>계약방법</th></tr>{similar_rows}</table>"
         if similar else ""
     )
-    if not signals and not table and not methods:
-        return ""
-    extra = f"<div class='kv'>계약방법 후보: {esc(methods)}</div>" if methods else ""
+    ml = adv.get("ml") or {}
+    methods = ml.get("method_top_k", [])[:3]
+    extra = ""
+    if methods:
+        listed = " · ".join(f"{esc(x['method'])} {x['probability']:.0%}" for x in methods)
+        extra = (f"<div class='kv' style='margin-top:10px'>공개계약 데이터를 학습한 모형이 본 건과 유사한 "
+                 f"계약에서 관측한 계약방법 분포는 {listed} 순입니다. 참고 정보이며 판정에는 "
+                 f"반영되지 않습니다.</div>")
     return f"""<div class="card"><h2>6. 유사계약 참고 신호 <span class="kv">최종 판정과 구분되는 참고 정보</span></h2>
 {signals}{table}{extra}</div>"""
 
@@ -308,7 +408,7 @@ def render_page(key: str, report: dict, intake: dict | None, text: str,
 <div class="card status"><div><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div></div>
 <span class="badge {esc(report['decision'])}">{esc(DECISION_KO.get(report['decision'], report['decision']))}</span></div>
 {render_intake(intake)}
-{render_findings(report, case, text)}{render_advisory(report)}
+{render_findings(report, case)}{render_advisory(report)}
 <div class="card"><h2>7. 시스템 역할 경계</h2><div class="callout">MIL-Check는 적법성이나 계약을 자동 승인하지 않습니다. 규칙 엔진이 확인 결과를 만들고,
 ML·검색·LLM은 참고 신호와 문서화를 제공합니다. 최종 판단과 결재는 담당자에게 있습니다.</div></div>
 <div class="footer">규정 기준일 {esc(report.get('rules_current_as_of','-'))} · 본 화면은 공개 규정·공개 계약데이터 기반 시제품입니다.</div>

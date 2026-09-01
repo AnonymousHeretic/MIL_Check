@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import html
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -13,8 +15,9 @@ from milcheck.agent import MilCheckAgent
 from milcheck.contracts import ContractIndex
 from milcheck.evaluation import (eval_audit, eval_extraction, eval_retrieval,
                                  eval_rules)
-from milcheck.extract import extract, parse_amount
-from demo_app import PRESETS
+from milcheck.extract import EVIDENCE_PATTERNS, extract, parse_amount
+from demo_app import (EVIDENCE_LABELS, PRESETS, build_checklist, render_advisory,
+                      render_page)
 from milcheck.linear_model import LinearTextClassifier, make_text
 from milcheck.ml import MLAdvisor
 from milcheck.rules import RuleEngine
@@ -235,3 +238,126 @@ class TestEvaluationSuite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExtractionNegationBoundaries(unittest.TestCase):
+    """뒤 문장의 부정 표현이 앞 항목을 지우지 않는지 확인한다."""
+
+    def evidence(self, text: str) -> list[str]:
+        return extract(text)["fields"].get("evidence", [])
+
+    def test_multiple_evidence_in_one_sentence(self):
+        ev = self.evidence(
+            "가격 적정성 조사, 계약상대자 자격 확인, 이해충돌 확인을 마쳤고 "
+            "동일 사업 추가 구매는 없습니다."
+        )
+        for key in ("price_reasonableness", "vendor_eligibility",
+                    "conflict_of_interest_check", "no_artificial_split_review"):
+            self.assertIn(key, ev)
+
+    def test_particle_between_noun_and_verb(self):
+        ev = self.evidence("계약상대자 자격은 확인했지만 분할발주 검토는 아직 하지 않았습니다.")
+        self.assertIn("vendor_eligibility", ev)
+        self.assertNotIn("no_artificial_split_review", ev)
+
+    def test_trailing_negation_keeps_earlier_items(self):
+        ev = self.evidence("가격조사는 완료했고 이해충돌 확인도 마쳤습니다. 대체품 시장조사는 아직 못 했습니다.")
+        self.assertIn("price_reasonableness", ev)
+        self.assertIn("conflict_of_interest_check", ev)
+        self.assertNotIn("objective_market_search", ev)
+
+    def test_vendor_attestation_is_not_counted_as_evidence(self):
+        fields = extract(
+            "기존 정수장비에 들어가는 부품인데 다른 회사 제품은 호환이 안 됩니다. "
+            "부가세 제외 4,600만원이고 가격 적정성 조사와 계약상대자 자격 확인은 마쳤습니다. "
+            "업체 확인서는 받았지만 대체품 시장조사는 아직 못 했습니다."
+        )["fields"]
+        self.assertTrue(fields.get("vendor_attestation_only"))
+        self.assertNotIn("compatibility_evidence", fields.get("evidence", []))
+        self.assertNotIn("objective_market_search", fields.get("evidence", []))
+
+
+class TestDemoRendering(unittest.TestCase):
+    """데모 화면에 내부 변수명이 노출되지 않고 표시 수치가 일치하는지 확인한다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.agent = MilCheckAgent(llm_mode="none")
+
+    def visible_text(self, page: str) -> str:
+        body = re.sub(r"href='/\?preset=[a-z_]+'", "", page.split("</style>")[1])
+        return html.unescape(re.sub(r"<[^>]+>", " ", body))
+
+    def test_no_internal_keys_are_shown(self):
+        for key, preset in PRESETS.items():
+            case = preset["case"]
+            page = render_page(key, self.agent.review(case), None, "", case)
+            leaked = re.findall(r"[a-z][a-z_]{4,}", self.visible_text(page))
+            self.assertEqual(leaked, [], f"{key}에서 내부 키가 노출됨: {leaked}")
+
+    def test_evidence_labels_cover_all_rule_keys(self):
+        rules = json.loads((ROOT / "data" / "rules.json").read_text(encoding="utf-8"))
+        keys: set[str] = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k.endswith("required_evidence"):
+                        keys.update(v)
+                    walk(v)
+            elif isinstance(node, list):
+                for x in node:
+                    walk(x)
+
+        walk(rules)
+        keys.update(EVIDENCE_PATTERNS)
+        self.assertEqual(sorted(k for k in keys if k not in EVIDENCE_LABELS), [])
+
+    def test_checklist_covers_every_required_item(self):
+        case = PRESETS["compatibility_missing"]["case"]
+        report = self.agent.review(case)
+        items = build_checklist(report, case)
+        shown = {x["key"] for x in items}
+        self.assertTrue(set(report["missing_evidence"]).issubset(shown))
+        self.assertTrue(set(case["evidence"]).issubset(shown))
+        # 보완 필요 항목이 확인된 항목보다 앞에 온다.
+        confirmed_flags = [x["confirmed"] for x in items]
+        self.assertEqual(confirmed_flags, sorted(confirmed_flags))
+
+    def test_checklist_counts_match_displayed_rows(self):
+        for key, preset in PRESETS.items():
+            case = preset["case"]
+            report = self.agent.review(case)
+            items = build_checklist(report, case)
+            page = render_page(key, report, None, "", case)
+            text = self.visible_text(page)
+            if not items:
+                self.assertNotIn("요구 증빙 체크리스트", text)
+                continue
+            checked = sum(1 for x in items if x["confirmed"])
+            self.assertIn(f"{checked} / {len(items)}종 확인", text)
+            self.assertEqual(text.count("✓"),
+                             checked + 1)  # 체크리스트 항목 + 범례 1회
+
+    def test_vendor_attestation_shown_as_partial_not_confirmed(self):
+        text = ("기존 정수장비에 들어가는 부품인데 다른 회사 제품은 호환이 안 됩니다. "
+                "부가세 제외 4,600만원이고 가격 적정성 조사와 계약상대자 자격 확인은 마쳤습니다. "
+                "업체 확인서는 받았지만 대체품 시장조사는 아직 못 했습니다.")
+        intake = self.agent.intake(text)
+        case = dict(intake["fields"])
+        report = self.agent.review(case)
+        items = {x["key"]: x for x in build_checklist(report, case)}
+        self.assertTrue(items["compatibility_evidence"]["partial"])
+        self.assertFalse(items["compatibility_evidence"]["confirmed"])
+        self.assertFalse(items["objective_market_search"]["confirmed"])
+
+    def test_advisory_section_hidden_when_no_reference_signal(self):
+        report = {"decision": "OUT_OF_SCOPE", "advisory": {"signals": []}}
+        self.assertEqual(render_advisory(report), "")
+
+    def test_method_signal_uses_correct_particle(self):
+        case = PRESETS["method_review"]["case"]
+        messages = [s["message"]
+                    for s in self.agent.review(case)["advisory"]["signals"]]
+        self.assertTrue(any("제한경쟁으로" in m for m in messages))
+        self.assertFalse(any("제한경쟁로" in m for m in messages))

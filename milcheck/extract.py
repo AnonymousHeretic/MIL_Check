@@ -77,9 +77,10 @@ TYPE_PATTERNS = [
 
 EVIDENCE_PATTERNS = {
     "price_reasonableness": r"가격\s*(적정|비교|산출)|시중가|단가\s*비교|가격조사",
-    "vendor_eligibility": r"자격\s*(확인|증명)|사업자\s*등록|면허|소기업\s*확인|소상공인\s*확인",
+    # 실무 문장은 '자격은 확인했다'처럼 조사가 끼어들므로 조사를 허용한다.
+    "vendor_eligibility": r"자격[은는이가을를도]?\s*(확인|증명)|사업자\s*등록|면허|소기업\s*확인|소상공인\s*확인",
     "conflict_of_interest_check": r"이해\s*충돌|이해관계|배제\s*사유\s*확인|청렴",
-    "no_artificial_split_review": r"분할\s*(검토|여부)|합산\s*검토|동일\s*사업\s*확인|동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없",
+    "no_artificial_split_review": r"분할\s*(?:발주\s*)?(검토|여부)|합산\s*검토|동일\s*사업\s*확인|동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없",
     "objective_market_search": r"시장\s*조사|市場|공개\s*조사|조달\s*시장\s*확인|대체품\s*조사",
     "no_substitute_analysis": r"대체\s*(불가|불능)|대체품\s*(없|부재)|대체\s*가능성\s*분석",
     "installed_asset_spec": r"설치\s*자산|기존\s*설비\s*규격|현\s*장비\s*규격",
@@ -139,6 +140,9 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
 SELF_DELAY_RE = (r"(행정|결재|기안|검토|예산|집행|발주|착수)\S{0,4}\s*(지연|늦|지체)"
                  r"|늦게\s*착수|준비가\s*늦")
 SPLIT_HINT_RE = r"나눠\s*(발주|계약)|분할\s*발주|쪼개|여러\s*건으로"
+
+# 업체가 스스로 써 준 확인서는 독립적인 입증자료가 아니므로 따로 표시한다.
+VENDOR_ATTESTATION_RE = r"(업체|제조사|공급사|납품업체|해당\s*회사)\s*(자체\s*)?(확인서|확인\s*공문|의견서)"
 
 
 def extract(text: str, item_name: str | None = None) -> dict[str, Any]:
@@ -217,6 +221,12 @@ def extract(text: str, item_name: str | None = None) -> dict[str, Any]:
         notes.append("내부 행정지연이 긴급사유로 제시되었을 가능성을 표시했습니다.")
     if re.search(SPLIT_HINT_RE, flat):
         fields["split_contract_risk"] = True
+
+    if re.search(VENDOR_ATTESTATION_RE, flat) and "compatibility_evidence" not in evidence:
+        # 업체 확인서만 있는 상태를 보유 증빙(✓)으로도, 완전한 미보유(✗)로도 보지 않는다.
+        fields["vendor_attestation_only"] = True
+        notes.append("업체가 발급한 확인서만 확인되었습니다. 독립적인 입증자료가 아니므로 "
+                     "보유 증빙으로 계산하지 않았습니다.")
 
     if item_name:
         fields["item_name"] = item_name

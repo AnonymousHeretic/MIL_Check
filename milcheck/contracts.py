@@ -20,7 +20,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .linear_model import normalize_name
+from .linear_model import normalize_name, with_eulro
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -239,7 +239,7 @@ class ContractIndex:
             if top_method != "수의계약" and cnt >= 3:
                 signals.append({
                     "code": "DATA-METHOD-PRECEDENT", "severity": "info",
-                    "message": (f"유사계약 상위 5건 중 {cnt}건이 「{top_method}」로 "
+                    "message": (f"유사계약 상위 5건 중 {cnt}건이 {with_eulro(top_method)} "
                                 f"체결되었습니다. 경쟁 가능성을 검토하십시오."),
                 })
         return {"similar_contracts": similar, "price_band": band,
