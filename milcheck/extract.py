@@ -125,22 +125,24 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
     ):
         return True
 
-    # 현재 항목부터 다음 문장부호까지를 하나의 절로 보고,
-    # 뒤에 연결된 목록 전체를 부정하는 종결 표현을 확인한다.
     clause_end_match = re.search(r"[.?!\n]", text[match.start():])
     clause_end = match.start() + (
         clause_end_match.start() if clause_end_match else len(text) - match.start()
     )
     tail = text[match.end():clause_end]
 
-    # 항목 직후의 부정뿐 아니라 쉼표·'및/와'로 이어진 목록의 마지막에
-    # 부정어가 오는 경우도 해당 항목의 부정으로 본다.
-    if re.search(
-        r"(?:,|、|및|와|과|그리고|·).{0,100}"
-        r"(?:아직\s*)?(?:못|안|않|미실시|미완료)|없(?:습니다|음|다)",
-        tail,
-    ):
-        return False
+    negation = re.search(
+        r"(?:아직\s*)?(?:못|안|않|미실시|미완료)|없(?:습니다|음|다)", tail
+    )
+    if negation:
+        # 같은 절에서 먼저 "마쳤다/확보했다/확인했다"가 나오면,
+        # 뒤의 부정은 다른 목록 항목에 대한 표현으로 본다.
+        positive = re.search(
+            r"(?:마쳤|완료|확보|확인했|확인하였|받았|있(?:습니다|음|다))",
+            tail[:negation.start()],
+        )
+        if positive is None:
+            return False
 
     clause_start = max(
         text.rfind(".", 0, match.start()),
