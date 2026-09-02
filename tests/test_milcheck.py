@@ -412,5 +412,5 @@ class TestLatestInputFixes(unittest.TestCase):
         case = dict(PRESETS["compatibility_missing"]["case"])
         report = self.agent.review(case)
         page = render_page("compatibility_missing", report, None, "", case)
-        self.assertIn("독립 증빙 필요", self.visible_text(page))
+        self.assertIn("독립 증빙 필요", re.sub(r"<[^>]+>", " ", page))
 
