@@ -106,7 +106,7 @@ class RuleEngine:
                         "SCOPE-002",
                         "info",
                         "재공고 유찰, 방산물자, 보훈·복지단체 등은 다음 규칙팩 대상으로 분리했습니다.",
-                        "MIL-Check MVP 범위",
+                        "MIL-Check 현재 판정 범위",
                     )
                 ],
             )
