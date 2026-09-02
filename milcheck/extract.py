@@ -139,7 +139,7 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
 # 담당자가 스스로 밝힌 위험 신호
 SELF_DELAY_RE = (r"(행정|결재|기안|검토|예산|집행|발주|착수)\S{0,4}\s*(지연|늦|지체)"
                  r"|늦게\s*착수|준비가\s*늦")
-SPLIT_HINT_RE = r"나눠\s*(발주|계약)|분할\s*발주|쪼개|여러\s*건으로"
+SPLIT_HINT_RE = r"나눠\s*(발주|계약)|분할\s*발주\s*(?:할|한다|진행|하려|하여|해서)|쪼개|여러\s*건으로"
 
 # 업체가 스스로 써 준 확인서는 독립적인 입증자료가 아니므로 따로 표시한다.
 VENDOR_ATTESTATION_RE = r"(업체|제조사|공급사|납품업체|해당\s*회사)\s*(자체\s*)?(확인서|확인\s*공문|의견서)"
@@ -171,6 +171,8 @@ def extract(text: str, item_name: str | None = None) -> dict[str, Any]:
 
     if re.search(r"임대차|임대\s*계약|임차|렌탈", flat):
         fields["contract_category"] = "lease"
+    elif re.search(r"공사|시공|리모델링|건설", flat):
+        fields["contract_category"] = "construction"
     elif re.search(r"용역|정비|유지보수|위탁|서비스", flat):
         fields["contract_category"] = "service"
     elif re.search(r"구매|구입|납품|물품|장비|자재|비품", flat):
