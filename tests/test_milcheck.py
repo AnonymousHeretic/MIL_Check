@@ -376,3 +376,41 @@ class TestRecentFixes(unittest.TestCase):
     def test_explicit_small_amount_wins_over_urgency_word(self):
         fields = extract("사무실 에어컨 구매입니다. 5,200만원이고 급하게 소액수의계약으로 진행합니다.")["fields"]
         self.assertEqual(fields.get("proposed_type"), "small_amount")
+
+
+
+class TestLatestInputFixes(unittest.TestCase):
+    def setUp(self):
+        self.agent = MilCheckAgent(use_ml=False, use_contract_index=False)
+
+    def test_coordinated_negated_evidence_is_not_counted(self):
+        fields = extract(
+            "호환성 입증자료, 기설치 장비 규격서, 객관적 시장조사, "
+            "대체불가성 분석은 아직 없습니다."
+        )["fields"]
+        evidence = fields.get("evidence", [])
+        self.assertNotIn("compatibility_evidence", evidence)
+        self.assertNotIn("installed_asset_spec", evidence)
+        self.assertNotIn("objective_market_search", evidence)
+        self.assertNotIn("no_substitute_analysis", evidence)
+
+    def test_construction_is_classified_before_scope_check(self):
+        fields = extract("화장실 리모델링 공사입니다. 부가세 제외 4,300만원이고 수의계약입니다.")["fields"]
+        self.assertEqual(fields.get("contract_category"), "construction")
+        report = self.agent.review(fields)
+        self.assertEqual(report["decision"], "OUT_OF_SCOPE")
+
+    def test_completed_split_review_is_not_a_split_risk(self):
+        fields = extract(
+            "사무실 에어컨 8대 구매입니다. 부가세 제외 5,200만원이고 "
+            "소액수의계약으로 진행합니다. 동일 사업 분할발주 검토도 마쳤습니다."
+        )["fields"]
+        self.assertNotEqual(fields.get("split_contract_risk"), True)
+        self.assertIn("no_artificial_split_review", fields.get("evidence", []))
+
+    def test_checklist_summary_uses_independent_evidence_wording(self):
+        case = dict(PRESETS["compatibility_missing"]["case"])
+        report = self.agent.review(case)
+        page = render_page("compatibility_missing", report, None, "", case)
+        self.assertIn("독립 증빙 필요", self.visible_text(page))
+
