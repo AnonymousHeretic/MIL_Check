@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 from milcheck.agent import MilCheckAgent
-from milcheck.contracts import ContractIndex
+from milcheck.contracts import ContractIndex, display_contract_name
 from milcheck.evaluation import (eval_audit, eval_extraction, eval_retrieval,
                                  eval_rules)
 from milcheck.extract import EVIDENCE_PATTERNS, extract, parse_amount
@@ -145,15 +145,72 @@ class TestContractIndex(unittest.TestCase):
         cls.index = ContractIndex.load()
 
     def test_no_personal_fields_in_index(self):
-        forbidden = {"대표업체명", "사업자등록번호", "대표업체주소", "담당자명"}
+        forbidden = {"대표업체명", "사업자등록번호", "대표업체주소", "담당자명", "o"}
         for record in self.index.records[:200]:
             self.assertFalse(forbidden & set(record.keys()))
+
+    def test_split_demo_reproduces_submitted_public_data_case(self):
+        case = PRESETS["split_candidate"]["case"]
+        report = MilCheckAgent().review(case)
+        split = report["advisory"]["contract_data"]["split_analysis"]
+        self.assertEqual(report["decision"], "PASS_WITH_CONTROLS")
+        self.assertEqual(split["contracts_including_current"], 8)
+        self.assertEqual(split["start_date"], "2025-03-05")
+        self.assertEqual(split["end_date"], "2025-04-16")
+        self.assertEqual(split["span_days"], 42)
+        self.assertEqual(split["sum_with_current"], 109_505_454)
+        page = render_page("split_candidate", report, None, "", case, True)
+        self.assertNotIn("119-", page)
+        self.assertNotIn("제6128", page)
 
     def test_similar_search_returns_ranked_hits(self):
         hits = self.index.search("전투식량 구매", top_k=5)
         self.assertTrue(hits)
         self.assertEqual([h["score"] for h in hits],
                          sorted((h["score"] for h in hits), reverse=True))
+
+    def test_display_name_masks_unit_identifiers_and_contract_round(self):
+        self.assertEqual(
+            display_contract_name(
+                "119-1대대 전반기 작계훈련(1-1차) 전투식량 구매"
+            ),
+            "[부대] 전반기 작계훈련 전투식량 구매",
+        )
+        self.assertEqual(
+            display_contract_name("제6128부대 전투식량 구매"),
+            "[부대] 전투식량 구매",
+        )
+        self.assertEqual(
+            display_contract_name("한빛부대 MSR작전용 레트로트 구매"),
+            "[부대] MSR작전용 레트로트 구매",
+        )
+        self.assertEqual(
+            display_contract_name(
+                "119-1 2 4대대 전반기 작계훈련(2차) 전투식량 구매"
+            ),
+            "[부대] 전반기 작계훈련 전투식량 구매",
+        )
+        self.assertEqual(
+            display_contract_name(
+                "119-2~4대대 후반기 작계훈련(1~2차) 전투식량 구매"
+            ),
+            "[부대] 후반기 작계훈련 전투식량 구매",
+        )
+        self.assertEqual(
+            display_contract_name("25-85(1) 부대비품 구매"),
+            "부대비품 구매",
+        )
+
+    def test_search_never_returns_raw_unit_name(self):
+        records = [{
+            "n": "0 0대대 전반기 작계훈련 전투식량 구매",
+            "o": "119-1대대 전반기 작계훈련(1-1차) 전투식량 구매",
+            "p": 17_672_727, "m": "수의계약", "a": "", "c": "물품",
+            "d": "2025-03", "u": "D02E430", "k": "전투식량 구매",
+        }]
+        hit = ContractIndex(records, {}).search("전투식량 구매", top_k=1)[0]
+        self.assertEqual(hit["name"], "[부대] 전반기 작계훈련 전투식량 구매")
+        self.assertNotIn("119-1대대", hit["name"])
 
 
 class TestExtraction(unittest.TestCase):
@@ -439,7 +496,11 @@ class TestWorkflowPresentation(unittest.TestCase):
                         "related_contracts": 7,
                         "sum_with_current": 109500000,
                         "cap": 20000000,
-                        "window_months": 2,
+                        "window_days": 60,
+                        "contracts_including_current": 8,
+                        "start_date": "2025-03-05",
+                        "end_date": "2025-04-16",
+                        "span_days": 42,
                         "similarity_threshold": 0.70,
                         "examples": [{
                             "month": "2025-01",
@@ -454,5 +515,39 @@ class TestWorkflowPresentation(unittest.TestCase):
         page = render_split_detail(report)
         self.assertIn("분할발주 확인 후보", page)
         self.assertIn("판정 미반영", page)
-        self.assertIn("ABC1234", page)
+        self.assertNotIn("ABC1234", page)
         self.assertIn("109,500,000원", page)
+        self.assertIn("42일 경과", page)
+        self.assertIn("60일 시간창", page)
+
+    def test_split_window_is_day_precise_and_excludes_current_record(self):
+        records = []
+        rows = [
+            ("2025-03-05", 13_176_000), ("2025-03-05", 12_216_000),
+            ("2025-03-10", 19_960_000), ("2025-03-10", 19_440_000),
+            ("2025-03-11", 11_144_000), ("2025-03-17", 17_632_000),
+            ("2025-03-17", 19_080_000), ("2025-04-16", 7_808_000),
+            ("2025-06-16", 10_888_000),
+        ]
+        for i, (day, gross) in enumerate(rows):
+            normalized = "0 0대대 전반기 작계훈련 전투식량 구매"
+            if day == "2025-04-16":
+                normalized = "0 0 0 0대대 전반기 작계훈련 전투식량 구매"
+            records.append({
+                "n": normalized,
+                "x": "[부대] 전반기 작계훈련 전투식량 구매",
+                "p": int(gross / 1.1), "g": gross, "m": "수의계약",
+                "a": "령26-1-5가(2)", "c": "물품", "d": day[:7],
+                "t": day, "u": "D02E430", "k": "0대대 전반기",
+            })
+        index = ContractIndex(records, {})
+        result = index.split_order_candidates(
+            "119-1 2 4대대 전반기 작계훈련(2차) 전투식량 구매",
+            7_098_181, "D02E430", "2025-04-16", "2025-04", 7_808_000,
+        )
+        self.assertEqual(result["related_contracts"], 7)
+        self.assertEqual(result["contracts_including_current"], 8)
+        self.assertEqual(result["sum_with_current"], 109_505_454)
+        self.assertEqual(result["span_days"], 42)
+        self.assertEqual(result["start_date"], "2025-03-05")
+        self.assertEqual(result["end_date"], "2025-04-16")

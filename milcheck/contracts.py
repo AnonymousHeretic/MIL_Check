@@ -16,7 +16,9 @@ from __future__ import annotations
 import gzip
 import json
 import math
+import re
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +27,37 @@ from .linear_model import normalize_name, with_eulro
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 SMALL_AMOUNT_CAP = 20_000_000
-SPLIT_WINDOW_MONTHS = 2
+SPLIT_WINDOW_DAYS = 60
 SPLIT_SIMILARITY = 0.70
+
+# 계약명에는 부서 필드와 별개로 부대 번호가 다시 포함되는 경우가 있다.
+# 검색에는 정규화명(n)을 쓰고, 화면에는 아래 함수로 만든 표시용 이름만 내보낸다.
+_UNIT_PATTERNS = (
+    re.compile(
+        r"(?:제\s*)?"
+        r"\d+(?:(?:\s*[-~,/]\s*|\s+)\d+)*\s*"
+        r"(?:군단|사단|여단|연대|대대|중대|전대|비행단|함대|전단|부대|"
+        r"지원단|시설단|관리소|동지단|해감대대)"
+    ),
+    re.compile(r"(?<![0-9A-Za-z가-힣])[0-9A-Za-z가-힣-]+부대(?![0-9A-Za-z가-힣])"),
+)
+_PAREN_CONTRACT_CODE = re.compile(
+    r"\(\s*\d+(?:\s*[-~]\s*\d+)*(?:차)?\s*\)"
+)
+_LEADING_CONTRACT_CODE = re.compile(
+    r"^\s*['\"]?\d{2,4}(?:[-_/]\d+)+\(\d+\)\s*"
+)
+
+
+def display_contract_name(name: str) -> str:
+    """계약명에서 부대 식별자와 괄호형 계약 차수를 제거한 표시용 이름."""
+    masked = str(name or "")
+    masked = _LEADING_CONTRACT_CODE.sub("", masked)
+    for pattern in _UNIT_PATTERNS:
+        masked = pattern.sub("[부대]", masked)
+    masked = _PAREN_CONTRACT_CODE.sub("", masked)
+    masked = re.sub(r"\s+", " ", masked).strip()
+    return masked or "[계약명 비식별]"
 
 
 def char_ngrams(text: str, lo: int = 3, hi: int = 4) -> list[str]:
@@ -52,11 +83,23 @@ def _month_diff(a: str, b: str) -> int:
     return abs((ya * 12 + ma) - (yb * 12 + mb))
 
 
+def _parse_date(value: str | None) -> date | None:
+    if not value or len(value) != 10:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 class ContractIndex:
     """역색인 기반 유사계약 검색기."""
 
     def __init__(self, records: list[dict], bands: dict[str, dict],
                  meta: dict | None = None):
+        for rec in records:
+            if "p" not in rec and rec.get("g") is not None:
+                rec["p"] = int(rec["g"] / 1.1)
         self.records = records
         self.bands = bands
         self.meta = meta or {}
@@ -130,9 +173,16 @@ class ContractIndex:
         for i, s in ranked:
             r = self.records[i]
             out.append({
-                "score": round(s, 4), "name": r["o"], "est_price": r["p"],
+                "score": round(s, 4),
+                # 새 인덱스는 x만 저장한다. 기존 인덱스도 원문을 그대로
+                # 반환하지 않고 런타임에서 동일한 마스킹을 적용한다.
+                "name": r.get("x") or display_contract_name(r.get("o", r["n"])),
+                "est_price": r["p"],
                 "method": r["m"], "article": r["a"], "category": r["c"],
-                "month": r["d"], "department_alias": r["u"],
+                "month": r.get("d") or (r.get("t") or "")[:7],
+                "department_alias": r["u"],
+                "date": r.get("t"), "gross_amount": r.get("g"),
+                "normalized_name": r["n"],
             })
         return out
 
@@ -182,30 +232,71 @@ class ContractIndex:
     # ------------------------------------------------------------------
     def split_order_candidates(self, item_name: str, est_price: float,
                                department_alias: str | None = None,
-                               month: str | None = None) -> dict[str, Any]:
+                               contract_date: str | None = None,
+                               month: str | None = None,
+                               gross_amount: float | None = None) -> dict[str, Any]:
         """동일 부서 내 유사 품목의 최근 소액수의를 합산해 분할 위험을 계산한다."""
         if not department_alias or department_alias not in self.by_dept:
             return {"available": False,
                     "reason": "부서 별칭 미입력 — 실제 운영에서는 소속 부서 이력으로 계산"}
         pool = self.by_dept[department_alias]
         hits = self.search(item_name, top_k=50, candidates=pool)
+        query_norm = normalize_name(item_name)
+        current_date = _parse_date(contract_date)
         related = []
         for h in hits:
             if h["score"] < SPLIT_SIMILARITY:
                 continue
-            if month and _month_diff(h["month"], month) > SPLIT_WINDOW_MONTHS:
+            hit_date = _parse_date(h.get("date"))
+            if current_date and hit_date:
+                elapsed = (current_date - hit_date).days
+                if elapsed < 0 or elapsed > SPLIT_WINDOW_DAYS:
+                    continue
+                # 공개 이력의 기존 계약을 다시 검토하는 재현 화면에서는
+                # 현재 건 자체가 검색될 수 있으므로 정확히 같은 건은 제외한다.
+                same_amount = (
+                    gross_amount is not None
+                    and h.get("gross_amount") is not None
+                    and int(h["gross_amount"]) == int(gross_amount)
+                )
+                if elapsed == 0 and same_amount and h["normalized_name"] == query_norm:
+                    continue
+            elif month and _month_diff(h["month"], month) > 2:
+                # 날짜 필드가 없는 구형 인덱스에 대한 호환 경로다.
                 continue
             related.append(h)
-        total = est_price + sum(h["est_price"] for h in related)
+        gross_values = [h.get("gross_amount") for h in related]
+        if gross_amount is not None and all(v is not None for v in gross_values):
+            total = int((int(gross_amount) + sum(int(v) for v in gross_values)) / 1.1)
+        else:
+            total = int(est_price + sum(h["est_price"] for h in related))
+        current_row = {
+            "score": 1.0, "name": display_contract_name(item_name),
+            "est_price": int(est_price), "gross_amount": gross_amount,
+            "method": "검토 중", "article": "", "category": "",
+            "month": (contract_date or month or "")[:7],
+            "date": contract_date, "department_alias": department_alias,
+            "is_current": True,
+        }
+        contracts = sorted(
+            [{**h, "is_current": False} for h in related] + [current_row],
+            key=lambda h: h.get("date") or h.get("month") or "",
+        )
+        dated = [_parse_date(h.get("date")) for h in contracts]
+        dated = [d for d in dated if d is not None]
         return {
             "available": True,
             "related_contracts": len(related),
+            "contracts_including_current": len(contracts),
             "sum_with_current": int(total),
             "cap": SMALL_AMOUNT_CAP,
             "exceeds_cap": bool(total > SMALL_AMOUNT_CAP * 1.03),
-            "window_months": SPLIT_WINDOW_MONTHS,
+            "window_days": SPLIT_WINDOW_DAYS,
             "similarity_threshold": SPLIT_SIMILARITY,
-            "examples": related[:3],
+            "start_date": min(dated).isoformat() if dated else None,
+            "end_date": max(dated).isoformat() if dated else None,
+            "span_days": (max(dated) - min(dated)).days if dated else None,
+            "examples": contracts,
         }
 
     # ------------------------------------------------------------------
@@ -215,7 +306,8 @@ class ContractIndex:
         similar = self.search(name, top_k=5)
         band = self.price_band(name, price)
         split = self.split_order_candidates(
-            name, price, case.get("department_alias"), case.get("contract_month"))
+            name, price, case.get("department_alias"), case.get("contract_date"),
+            case.get("contract_month"), case.get("contract_amount_krw_inc_vat"))
 
         signals: list[dict[str, str]] = []
         if band.get("available") and band.get("signal") and band["signal"] != "통상 가격대 이내":
@@ -228,8 +320,8 @@ class ContractIndex:
         if split.get("exceeds_cap"):
             signals.append({
                 "code": "DATA-SPLIT-RISK", "severity": "warning",
-                "message": (f"최근 {SPLIT_WINDOW_MONTHS}개월 내 동일 부서의 유사 계약 "
-                            f"{split['related_contracts']}건과 합산하면 "
+                "message": (f"최근 {SPLIT_WINDOW_DAYS}일 내 동일 부서의 과거 유사 계약 "
+                            f"{split['related_contracts']}건을 현재 건과 합산하면 "
                             f"{split['sum_with_current']:,}원으로 소액수의 상한을 초과합니다. "
                             f"동일 사업 여부와 인위적 분할 여부를 확인하십시오."),
             })

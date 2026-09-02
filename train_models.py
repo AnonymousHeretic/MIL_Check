@@ -38,8 +38,8 @@ def normalize_name(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def load() -> pd.DataFrame:
-    df = pd.read_csv(RAW, encoding="cp949", dtype=str).fillna("")
+def load(raw_path: str | Path | None = None) -> pd.DataFrame:
+    df = pd.read_csv(Path(raw_path or RAW), encoding="cp949", dtype=str).fillna("")
     df["amount"] = pd.to_numeric(df["계약금액"], errors="coerce")
     df["planned"] = pd.to_numeric(df["예정가격"], errors="coerce")
     df["date"] = pd.to_datetime(df["계약체결일자"], errors="coerce")

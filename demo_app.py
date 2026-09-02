@@ -71,6 +71,24 @@ PRESETS = {
             "evidence": COMMON + ["no_artificial_split_review"],
         },
     },
+    "split_candidate": {
+        "label": "반복 발주 합산",
+        "hint": "제출 기획서에 기재한 공개 계약데이터 사례를 일 단위로 재현합니다",
+        "case": {
+            "case_id": "DEMO-F",
+            "item_name": "119-1 2 4대대 전반기 작계훈련(2차) 전투식량 구매",
+            "display_item_name": "[부대] 전반기 작계훈련 전투식량 구매",
+            "description": "제출 기획서 기재 공개데이터 사례 재현",
+            "contract_category": "goods", "proposed_type": "small_amount",
+            "small_amount_basis": "general", "contractor_category": "general",
+            "estimated_price_krw_ex_vat": 7_098_181,
+            "contract_amount_krw_inc_vat": 7_808_000,
+            "quote_count_planned": 2, "electronic_quotes_planned": True,
+            "split_contract_risk": False, "department_alias": "D02E430",
+            "contract_date": "2025-04-16", "contract_month": "2025-04",
+            "evidence": COMMON + ["no_artificial_split_review"],
+        },
+    },
     "out_scope": {
         "label": "공사 계약",
         "hint": "현재 판정 범위에서 최종 판정하지 않는 계약 유형입니다",
@@ -147,6 +165,8 @@ FIELD_LABELS = {
     "urgency_cause": "긴급성이 발생한 원인",
     "vendor_attestation_only": "업체 확인서만 확보된 상태",
     "contract_month": "계약 예정 시기",
+    "contract_date": "계약 검토 기준일",
+    "contract_amount_krw_inc_vat": "계약금액(부가세 포함)",
     "case_id": "검토 번호",
 }
 
@@ -368,14 +388,19 @@ def render_split_detail(report: dict) -> str:
     if not split.get("available") or not split.get("exceeds_cap"):
         return ""
     rows = "".join(
-        f"<tr><td>{esc(x.get('month', '-'))}</td><td>{esc(x.get('department_alias', '-'))}</td>"
+        f"<tr><td>{esc(x.get('date') or x.get('month', '-'))}</td>"
+        f"<td>{'현재 검토' if x.get('is_current') else '과거 이력'}</td>"
         f"<td class='num'>{x.get('est_price', 0):,}원</td><td>{esc(x.get('name', '-'))}</td></tr>"
         for x in split.get("examples", [])
     )
+    period = ""
+    if split.get("start_date") and split.get("end_date"):
+        period = (f"{esc(split['start_date'])}~{esc(split['end_date'])} · "
+                  f"첫 계약부터 {split.get('span_days', 0)}일 경과 · ")
     return f"""<div class="card"><h2>분할발주 확인 후보 <span class="kv">참고 신호 · 판정 미반영</span></h2>
-<div class="finding warning"><b>확인 후보</b> 최근 {split.get('window_months', 0) * 30}일 시간창 내 유사 계약 {split.get('related_contracts', 0)}건을 현재 건과 합산하면 {split.get('sum_with_current', 0):,}원입니다.</div>
-<table><tr><th>계약월</th><th>익명 부서</th><th>금액</th><th>계약명</th></tr>{rows}</table>
-<div class="kv" style="margin-top:10px">적용 기준: 유사도 {split.get('similarity_threshold', 0):.2f} 이상 · {split.get('window_months', 0) * 30}일 시간창 · 소액수의 상한 {split.get('cap', 0):,}원</div>
+<div class="finding warning"><b>확인 후보</b> {period}현재 건을 포함한 유사 계약 {split.get('contracts_including_current', 0)}건의 합계는 {split.get('sum_with_current', 0):,}원입니다.</div>
+<table><tr><th>계약일</th><th>구분</th><th>금액</th><th>계약명</th></tr>{rows}</table>
+<div class="kv" style="margin-top:10px">적용 기준: 동일 익명 부서 · 유사도 {split.get('similarity_threshold', 0):.2f} 이상 · {split.get('window_days', 0)}일 시간창 · 소액수의 상한 {split.get('cap', 0):,}원</div>
 <div class="callout" style="margin-top:10px">위반 판정이 아닌 확인 후보입니다. 작전 소요 등에 따른 정당한 분리 가능성을 담당자가 확인해야 하며, 최종 판정에는 반영되지 않습니다.</div></div>"""
 
 def render_advisory(report: dict) -> str:

@@ -107,7 +107,7 @@ class MilCheckAgent:
 
         report = {
             "case_id": case.get("case_id"),
-            "item_name": case.get("item_name"),
+            "item_name": case.get("display_item_name") or case.get("item_name"),
             "reviewed_at": date.today().isoformat(),
             "rules_current_as_of": self.rule_engine.rules["current_as_of"],
             **evaluation,
