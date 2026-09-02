@@ -259,7 +259,7 @@ CONFIDENCE_LABELS = {
 }
 
 
-def render_intake(intake: dict | None) -> str:
+def render_intake(intake: dict | None, text: str = "", confirmed: bool = True) -> str:
     if not intake:
         return ""
     rows = "".join(
@@ -271,8 +271,12 @@ def render_intake(intake: dict | None) -> str:
     return f"""<div class="card"><h2>2. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
 <table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>확인</th></tr>{rows}</table>
 <ul style="margin-top:10px">{notes}</ul>
-<div class="callout">이 값은 AI가 추출한 초안입니다. 여기 적힌 내용은 담당자의 진술일 뿐 증빙 파일을
-검증한 결과가 아니므로, 실제 자료와 일치하는지 확인한 뒤 규칙 점검 결과를 해석하십시오.</div></div>"""
+<div class="callout">이 값은 AI가 추출한 초안입니다. 실제 자료와 일치하는지 확인한 뒤 검사를 실행하십시오.</div>
+<form method="get" action="/" style="margin-top:10px">
+<input type="hidden" name="text" value="{esc(text)}">
+<input type="hidden" name="confirmed" value="1">
+<button class="btn primary" type="submit">{'확인 후 검사' if not confirmed else '확인 완료 · 다시 검사'}</button>
+</form></div>"""
 
 
 def build_checklist(report: dict, case: dict | None = None) -> list[dict]:
@@ -359,6 +363,21 @@ def render_findings(report: dict, case: dict | None = None) -> str:
 {findings}</div>{checklist_card}{input_card}{procedure_card}"""
 
 
+def render_split_detail(report: dict) -> str:
+    split = (report.get("advisory") or {}).get("contract_data", {}).get("split_analysis") or {}
+    if not split.get("available") or not split.get("exceeds_cap"):
+        return ""
+    rows = "".join(
+        f"<tr><td>{esc(x.get('month', '-'))}</td><td>{esc(x.get('department_alias', '-'))}</td>"
+        f"<td class='num'>{x.get('est_price', 0):,}원</td><td>{esc(x.get('name', '-'))}</td></tr>"
+        for x in split.get("examples", [])
+    )
+    return f"""<div class="card"><h2>분할발주 확인 후보 <span class="kv">참고 신호 · 판정 미반영</span></h2>
+<div class="finding warning"><b>확인 후보</b> 최근 {split.get('window_months', 0) * 30}일 시간창 내 유사 계약 {split.get('related_contracts', 0)}건을 현재 건과 합산하면 {split.get('sum_with_current', 0):,}원입니다.</div>
+<table><tr><th>계약월</th><th>익명 부서</th><th>금액</th><th>계약명</th></tr>{rows}</table>
+<div class="kv" style="margin-top:10px">적용 기준: 유사도 {split.get('similarity_threshold', 0):.2f} 이상 · {split.get('window_months', 0) * 30}일 시간창 · 소액수의 상한 {split.get('cap', 0):,}원</div>
+<div class="callout" style="margin-top:10px">위반 판정이 아닌 확인 후보입니다. 작전 소요 등에 따른 정당한 분리 가능성을 담당자가 확인해야 하며, 최종 판정에는 반영되지 않습니다.</div></div>"""
+
 def render_advisory(report: dict) -> str:
     adv = report.get("advisory") or {}
     signals = "".join(
@@ -414,7 +433,7 @@ def decision_message(report: dict) -> str:
 
 
 def render_page(key: str, report: dict, intake: dict | None, text: str,
-                case: dict | None = None) -> str:
+                case: dict | None = None, confirmed: bool = True) -> str:
     buttons = "".join(
         f"<a class='btn {'on' if key == k else ''}' href='/?preset={k}'>{esc(v['label'])}</a>"
         for k, v in PRESETS.items()
@@ -426,18 +445,25 @@ def render_page(key: str, report: dict, intake: dict | None, text: str,
 <style>{STYLE}</style></head><body><main class="wrap">
 <header class="header"><div><h1>MIL-Check</h1><div class="sub">근거 기반 군 계약 사전점검 보조 시스템 · 로컬 데모</div></div>
 <div class="badges"><span class="pill">외부 전송 없음</span><span class="pill">규칙 기반 판정</span><span class="pill">담당자 최종 확인</span></div></header>
-<div class="workflow"><span class="step {active}">① 입력</span><span class="step {'done' if intake else ''}">② 내용 확인</span><span class="step {'done' if intake or key else ''}">③ 사전검토</span><span class="step">④ 근거와 확인사항</span></div>
+<div class="workflow"><span class="step {active}">① 입력</span><span class="step {'done' if intake else ''}">② 내용 확인</span><span class="step {'done' if confirmed and (intake or key) else ''}">③ 사전검토</span><span class="step">④ 근거와 확인사항</span></div>
 <div class="card"><h2>검토할 계약 상황 선택</h2><div class="btns">{buttons}</div>
 <div class="hint">{esc(PRESETS.get(key,{}).get('hint','계약 상황을 선택하거나 아래에 직접 입력하십시오.'))}</div></div>
 <div class="card"><h2>1. 계약 상황을 문장으로 입력</h2><form method="get" action="/">
 <textarea name="text" spellcheck="false" placeholder="계약 상황을 문장으로 입력하십시오">{input_text or esc(SAMPLE_TEXT)}</textarea>
 <div style="margin-top:10px"><button class="btn primary" type="submit">내용 이해하기</button>
 <a class="btn" href="/?preset={esc(key or 'small_ok')}">선택한 상황 다시 보기</a></div></form></div>
-<div class="card status"><div style="flex:1;min-width:260px"><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div>
+{(
+f'''<div class="card status"><div style="flex:1;min-width:260px"><b>{esc(report.get('item_name') or '검토 결과')}</b><div class="kv">{esc(report.get('legal_ground'))}</div>
 <div style="margin-top:8px;font-size:13px"><b>핵심 확인:</b> {esc(decision_message(report))}</div></div>
-<span class="badge {esc(report['decision'])}">{esc(DECISION_KO.get(report['decision'], report['decision']))}</span></div>
-{render_intake(intake)}
-{render_findings(report, case)}{render_advisory(report)}
+<span class="badge {esc(report['decision'])}">{esc(DECISION_KO.get(report['decision'], report['decision']))}</span></div>'''
+if confirmed else ""
+)}
+{render_intake(intake, text, confirmed)}
+{(
+    f'<div class="card"><h2>검토 실행 대기</h2><div class="callout">구조화 결과를 확인한 뒤 <b>확인 후 검사</b>를 누르십시오.</div></div>'
+    if intake and not confirmed else
+    f'{render_findings(report, case)}{render_advisory(report)}{render_split_detail(report)}'
+)}
 <div class="card"><h2>7. 시스템 역할 경계</h2><div class="callout">MIL-Check는 적법성이나 계약을 자동 승인하지 않습니다. 규칙 엔진이 확인 결과를 만들고,
 ML·검색·LLM은 참고 신호와 문서화를 제공합니다. 최종 판단과 결재는 담당자에게 있습니다.</div></div>
 <div class="footer">규정 기준일 {esc(report.get('rules_current_as_of','-'))} · 본 화면은 공개 규정·공개 계약데이터 기반 시제품입니다.</div>
@@ -460,7 +486,8 @@ class Handler(BaseHTTPRequestHandler):
             if key not in PRESETS: key = "small_ok"
             case = PRESETS[key]["case"]
         report = AGENT.review(case)
-        body = render_page(key, report, intake, text, case).encode("utf-8")
+        confirmed = params.get("confirmed", ["0"])[0] == "1" if text else True
+        body = render_page(key, report, intake, text, case, confirmed).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
