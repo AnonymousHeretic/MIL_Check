@@ -132,7 +132,7 @@ class ContractIndex:
             out.append({
                 "score": round(s, 4), "name": r["o"], "est_price": r["p"],
                 "method": r["m"], "article": r["a"], "category": r["c"],
-                "month": r["d"],
+                "month": r["d"], "department_alias": r["u"],
             })
         return out
 
