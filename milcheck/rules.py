@@ -59,6 +59,22 @@ class RuleEngine:
             not isinstance(case.get("estimated_price_krw_ex_vat"), (int, float)),
             not proposed_type,
         ]
+        # 계약 대상이 명확히 범위 밖이면, 사유·증빙 부족보다 범위 안내를 우선한다.
+        # 그래야 공사 입력을 단순한 정보 부족으로 오인하지 않는다.
+        if case.get("contract_category") not in {None, "goods", "service", "lease"}:
+            return Evaluation(
+                decision="OUT_OF_SCOPE",
+                proposed_type=proposed_type,
+                legal_ground="현재 판정 범위는 국가계약법상 물품·용역",
+                findings=[
+                    self._finding(
+                        "SCOPE-001",
+                        "info",
+                        "공사·임대차·매각·방위사업법 특례 계약은 별도 규칙팩이 필요합니다.",
+                        "MIL-Check 현재 판정 범위",
+                    )
+                ],
+            )
         if any(missing_core):
             return Evaluation(
                 decision="NEEDS_INPUT",
