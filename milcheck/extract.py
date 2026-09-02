@@ -143,7 +143,7 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
         )
         # "자격은 확인했지만 B는 아직 없다"처럼 접속어 뒤의 부정은
         # 현재 항목이 아니라 다음 항목에 적용될 수 있다.
-        if positive is None and re.match(r"\s*(?:지만|고|으며|했고|하여|하고)", tail):
+        if positive is None and re.match(r"\s*(?:지만|했지만|고|으며|했고|하여|하고)", tail):
             positive = True
         if positive is None:
             return False
