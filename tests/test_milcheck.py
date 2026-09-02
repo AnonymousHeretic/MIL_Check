@@ -414,3 +414,45 @@ class TestLatestInputFixes(unittest.TestCase):
         page = render_page("compatibility_missing", report, None, "", case)
         self.assertIn("독립 증빙 필요", re.sub(r"<[^>]+>", " ", page))
 
+
+
+class TestWorkflowPresentation(unittest.TestCase):
+    def test_review_is_hidden_until_intake_confirmation(self):
+        agent = MilCheckAgent(use_ml=False, use_contract_index=False)
+        text = "복사용지 구매입니다. 부가세 제외 850만원이고 소액수의계약입니다."
+        intake = agent.intake(text)
+        case = dict(intake["fields"])
+        report = agent.review(case)
+        page = render_page("", report, intake, text, case, confirmed=False)
+        self.assertIn("검토 실행 대기", page)
+        self.assertIn("확인 후 검사", page)
+        self.assertNotIn("사전검토 결과", page)
+
+    def test_split_detail_card_exposes_candidate_basis(self):
+        from demo_app import render_split_detail
+        report = {
+            "advisory": {
+                "contract_data": {
+                    "split_analysis": {
+                        "available": True,
+                        "exceeds_cap": True,
+                        "related_contracts": 7,
+                        "sum_with_current": 109500000,
+                        "cap": 20000000,
+                        "window_months": 2,
+                        "similarity_threshold": 0.70,
+                        "examples": [{
+                            "month": "2025-01",
+                            "department_alias": "ABC1234",
+                            "est_price": 12000000,
+                            "name": "전투식량 구매",
+                        }],
+                    }
+                }
+            }
+        }
+        page = render_split_detail(report)
+        self.assertIn("분할발주 확인 후보", page)
+        self.assertIn("판정 미반영", page)
+        self.assertIn("ABC1234", page)
+        self.assertIn("109,500,000원", page)
