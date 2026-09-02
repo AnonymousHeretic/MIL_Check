@@ -327,7 +327,7 @@ def render_findings(report: dict, case: dict | None = None) -> str:
     unmet_count = len(items) - checked_count - partial_count
     summary = (
         f"<div class='check-summary'>{checked_count}종 충족 · "
-        f"{unmet_count}종 미충족 · {partial_count}종 점검 불가"
+        f"{unmet_count}종 미충족 · {partial_count}종 독립 증빙 필요"
         + (" (업체 확인서만 확보된 항목 포함)" if partial_count else "")
         + "</div>"
     )
