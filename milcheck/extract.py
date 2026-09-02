@@ -110,20 +110,38 @@ NEGATED_EVIDENCE_RE = re.compile(
 
 
 def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
-    """증빙 표현이 있어도 '아직 못 했다'는 부정 문장은 보유 자료로 세지 않는다."""
+    """증빙 표현과 그 문장이 실제 보유를 뜻하는지 구분한다.
+
+    여러 항목을 나열한 뒤 문장 끝에서 한꺼번에 부정하는 표현
+    (예: "A, B, C는 아직 없습니다")은 나열된 항목 전체를 미보유로 처리한다.
+    """
     match = re.search(pattern, text)
     if not match:
         return False
 
-    # '동일 사업 추가 구매 없음'은 분할발주 검토가 끝났다는 의미의
-    # 긍정적 확인이므로 일반적인 '없음' 부정 처리에서 제외한다.
+    # '동일 사업 추가 구매 없음'은 분할발주 검토가 끝났다는 의미다.
     if key == "no_artificial_split_review" and re.search(
         r"동일\s*사업\s*추가\s*(구매|발주)\s*(?:는\s*)?없", text
     ):
         return True
 
-    # 같은 문장 안에 다른 증빙의 긍정·부정 표현이 함께 있을 수 있으므로
-    # 접속어·구두점 기준으로 현재 절만 확인한다.
+    # 현재 항목부터 다음 문장부호까지를 하나의 절로 보고,
+    # 뒤에 연결된 목록 전체를 부정하는 종결 표현을 확인한다.
+    clause_end_match = re.search(r"[.?!\n]", text[match.start():])
+    clause_end = match.start() + (
+        clause_end_match.start() if clause_end_match else len(text) - match.start()
+    )
+    tail = text[match.end():clause_end]
+
+    # 항목 직후의 부정뿐 아니라 쉼표·'및/와'로 이어진 목록의 마지막에
+    # 부정어가 오는 경우도 해당 항목의 부정으로 본다.
+    if re.search(
+        r"(?:,|、|및|와|과|그리고|·).{0,100}"
+        r"(?:아직\s*)?(?:못|안|않|미실시|미완료)|없(?:습니다|음|다)",
+        tail,
+    ):
+        return False
+
     clause_start = max(
         text.rfind(".", 0, match.start()),
         text.rfind(",", 0, match.start()),
@@ -131,8 +149,6 @@ def _evidence_is_present(text: str, key: str, pattern: str) -> bool:
         text.rfind("그러나", 0, match.start()),
     ) + 1
     before = text[max(clause_start, match.start() - 12):match.start()]
-    # 뒤에 이어진 다른 증빙의 '없음'이 앞 항목을 부정하지 않도록
-    # 부정 표현은 증빙 표현 바로 뒤의 짧은 구간에서만 확인한다.
     after = text[match.end():match.end() + 18]
     return not NEGATED_EVIDENCE_RE.search(before + after)
 
