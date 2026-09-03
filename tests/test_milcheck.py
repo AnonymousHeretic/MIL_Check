@@ -17,7 +17,7 @@ from milcheck.evaluation import (eval_audit, eval_extraction, eval_retrieval,
                                  eval_rules)
 from milcheck.extract import EVIDENCE_PATTERNS, extract, parse_amount
 from demo_app import (EVIDENCE_LABELS, PRESETS, build_checklist, render_advisory,
-                      render_page)
+                      preset_intake, render_page)
 from milcheck.linear_model import LinearTextClassifier, make_text
 from milcheck.ml import MLAdvisor
 from milcheck.rules import RuleEngine
@@ -159,7 +159,14 @@ class TestContractIndex(unittest.TestCase):
         self.assertEqual(split["end_date"], "2025-04-16")
         self.assertEqual(split["span_days"], 42)
         self.assertEqual(split["sum_with_current"], 109_505_454)
-        page = render_page("split_candidate", report, None, "", case, True)
+        intake = preset_intake(case)
+        page = render_page("split_candidate", report, intake, "", case, True)
+        self.assertIn("2. 시스템이 이해한 내용", page)
+        self.assertIn("계약 검토 기준일", page)
+        self.assertIn("2025-04-16", page)
+        self.assertIn("7,098,181원", page)
+        self.assertIn("공개데이터 사례 값", page)
+        self.assertIn("계약시스템 입력값", page)
         self.assertNotIn("119-", page)
         self.assertNotIn("제6128", page)
 

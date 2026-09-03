@@ -276,7 +276,32 @@ CONFIDENCE_LABELS = {
     "high": "문장에 명시됨",
     "medium": "문장에서 인식",
     "low": "AI 추정값",
+    "public_data": "공개데이터 사례 값",
 }
+
+
+def preset_intake(case: dict) -> dict:
+    """프리셋의 판정 입력값을 담당자가 확인할 수 있는 표 형태로 만든다.
+
+    공개데이터 재현에 필요한 부서 별칭 같은 내부 검색 키는 노출하지 않고,
+    판정 및 합산 결과를 이해하는 데 필요한 값만 표시한다.
+    """
+    visible_keys = (
+        "item_name", "estimated_price_krw_ex_vat",
+        "contract_amount_krw_inc_vat", "contract_date",
+        "contract_category", "proposed_type", "small_amount_basis",
+        "contractor_category", "quote_count_planned",
+        "electronic_quotes_planned", "split_contract_risk", "evidence",
+    )
+    fields = {k: case[k] for k in visible_keys if k in case}
+    if case.get("display_item_name"):
+        fields["item_name"] = case["display_item_name"]
+    return {
+        "fields": fields,
+        "confidence": {k: "public_data" for k in fields},
+        "notes": ["기준일·금액은 공개계약 사례 메타데이터에서 불러왔습니다."],
+        "source": "public_data",
+    }
 
 
 def render_intake(intake: dict | None, text: str = "", confirmed: bool = True) -> str:
@@ -288,15 +313,23 @@ def render_intake(intake: dict | None, text: str = "", confirmed: bool = True) -
         for k, v in intake["fields"].items() if k != "description"
     )
     notes = "".join(f"<li>{esc(n)}</li>" for n in intake["notes"]) or "<li>추가 주의사항 없음</li>"
-    return f"""<div class="card"><h2>2. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
-<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>확인</th></tr>{rows}</table>
-<ul style="margin-top:10px">{notes}</ul>
-<div class="callout">이 값은 AI가 추출한 초안입니다. 실제 자료와 일치하는지 확인한 뒤 검사를 실행하십시오.</div>
+    is_public_data = intake.get("source") == "public_data"
+    callout = (
+        "시연에서는 공개계약 사례의 기준일·금액을 불러왔습니다. "
+        "실제 적용 시에는 계약시스템 입력값을 담당자가 확인한 뒤 검사를 실행합니다."
+        if is_public_data else
+        "이 값은 AI가 추출한 초안입니다. 실제 자료와 일치하는지 확인한 뒤 검사를 실행하십시오."
+    )
+    confirm_form = "" if is_public_data else f"""
 <form method="get" action="/" style="margin-top:10px">
 <input type="hidden" name="text" value="{esc(text)}">
 <input type="hidden" name="confirmed" value="1">
 <button class="btn primary" type="submit">{'확인 후 검사' if not confirmed else '확인 완료 · 다시 검사'}</button>
-</form></div>"""
+</form>"""
+    return f"""<div class="card"><h2>2. 시스템이 이해한 내용 <span class="kv">담당자 확인 후 검토 실행</span></h2>
+<table><tr><th>확인할 내용</th><th>시스템이 파악한 내용</th><th>확인</th></tr>{rows}</table>
+<ul style="margin-top:10px">{notes}</ul>
+<div class="callout">{esc(callout)}</div>{confirm_form}</div>"""
 
 
 def build_checklist(report: dict, case: dict | None = None) -> list[dict]:
@@ -510,6 +543,8 @@ class Handler(BaseHTTPRequestHandler):
             key = params.get("preset", ["small_ok"])[0]
             if key not in PRESETS: key = "small_ok"
             case = PRESETS[key]["case"]
+            if key == "split_candidate":
+                intake = preset_intake(case)
         report = AGENT.review(case)
         confirmed = params.get("confirmed", ["0"])[0] == "1" if text else True
         body = render_page(key, report, intake, text, case, confirmed).encode("utf-8")
