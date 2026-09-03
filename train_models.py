@@ -19,7 +19,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import FeatureUnion
 
 RAW = Path("/mnt/project/방위사업청_국내조달_계약정보_20251231.csv")
-OUT = Path("/home/claude/work/artifacts")
+OUT = Path(__file__).resolve().parent / "artifacts"
 OUT.mkdir(exist_ok=True, parents=True)
 SEED = 20260725
 

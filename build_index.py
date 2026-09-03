@@ -18,7 +18,7 @@ from analyze_audit import dedupe
 from milcheck.contracts import display_contract_name
 from train_models import load, article_key
 
-OUT = Path("/home/claude/work/artifacts")
+OUT = Path(__file__).resolve().parent / "artifacts"
 SALT = "milcheck-2026"
 
 

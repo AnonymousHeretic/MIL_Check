@@ -16,7 +16,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 from train_models import load, article_key
 
-OUT = Path("/home/claude/work/artifacts")
+OUT = Path(__file__).resolve().parent / "artifacts"
 OUT.mkdir(exist_ok=True, parents=True)
 
 THRESHOLDS = {
