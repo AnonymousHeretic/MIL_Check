@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-15",
+  "baseline_commit": "68410c3ef17418341b278f8be5c37773106359f7",
+  "candidate_parent": "af3b545c241d5bdfbf2641ad928e00f26bde9d47",
+  "candidate_identity": "PR final commit is recorded by GitHub Actions; local candidate is the working tree with unchanged runtime/model/data files",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+  "unittest": {
+    "baseline": 50,
+    "candidate": 50,
+    "failures": 0
+  },
+  "evaluation_identical": true,
+  "baseline_evaluation_sha256": "e93e7c9e85d0410012ea4031060964bdba86e798618cfaf50296c3f79fc97914",
+  "candidate_evaluation_sha256": "e93e7c9e85d0410012ea4031060964bdba86e798618cfaf50296c3f79fc97914",
+  "preserved_existing_files_excluding_readme": 48,
+  "negative_checks": [
+    "modified model rejected",
+    "missing model rejected"
+  ],
+  "limits": [
+    "No full model retraining",
+    "No military deployment or internal evaluation",
+    "Existing extraction errors retained; no regression",
+    "New architecture is a design, not a running document workflow"
+  ]
+}

@@ -1,0 +1,56 @@
+name: Championship baseline and PR tests
+
+on:
+  push:
+    branches: [docs/championship-stage-0-1]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [baseline, candidate]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.version == 'baseline' && '68410c3ef17418341b278f8be5c37773106359f7' || github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record environment and revision
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/milcheck-results"
+          git rev-parse HEAD > "$RUNNER_TEMP/milcheck-results/commit.txt"
+          python --version > "$RUNNER_TEMP/milcheck-results/python.txt"
+          uname -a > "$RUNNER_TEMP/milcheck-results/os.txt"
+          lscpu > "$RUNNER_TEMP/milcheck-results/cpu.txt"
+      - name: Verify preserved baseline files
+        if: matrix.version == 'candidate'
+        run: python scripts/verify_championship_baseline.py
+      - name: Run all existing unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/milcheck-results/unittest.log"
+      - name: Run packaged evaluation
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m milcheck.cli evaluate --output "$RUNNER_TEMP/milcheck-results/evaluation.json" 2>&1 | tee "$RUNNER_TEMP/milcheck-results/evaluation.log"
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: championship-${{ matrix.version }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/milcheck-results/
+          if-no-files-found: error
