@@ -8,9 +8,11 @@
   "verification": {
     "method": "GitHub recursive tree at pinned commit; selected source inspection",
     "tree_truncated": false,
-    "python_tests": "not_run_this_pr",
+    "python_tests": "50_passed_baseline_and_candidate",
     "training_evaluation": "not_run_this_pr",
-    "offline_install": "not_run_this_pr"
+    "offline_install": "not_run_this_pr",
+    "packaged_evaluation": "identical_baseline_and_candidate_existing_errors_retained",
+    "record": "verification/2026-09-15/summary.json"
   },
   "hash_kind": "git_blob_sha1",
   "files": [

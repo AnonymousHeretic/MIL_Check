@@ -33,6 +33,9 @@ jobs:
           python --version > "$RUNNER_TEMP/milcheck-results/python.txt"
           uname -a > "$RUNNER_TEMP/milcheck-results/os.txt"
           lscpu > "$RUNNER_TEMP/milcheck-results/cpu.txt"
+      - name: Verify preserved baseline files
+        if: matrix.version == 'candidate'
+        run: python scripts/verify_championship_baseline.py
       - name: Run all existing unit tests
         shell: bash
         run: |

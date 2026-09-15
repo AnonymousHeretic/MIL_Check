@@ -9,7 +9,7 @@
 - 파일 식별자는 [baseline-manifest.json](baseline-manifest.json)에 기록했다.
 - Git blob SHA는 Git 객체 식별자이며 일반 파일 SHA-256과 다르다.
 - 코드뿐 아니라 data/, eval/, 기존 결과 문서도 동일 커밋으로 보존한다.
-- 이 PR의 부모 커밋이 기준 버전이다. 과거 제출본과의 일치는 별도 조사 대상이다.
+- 이 PR의 기준 조상 커밋이며 archive/pre-championship-2026-09-14 브랜치에 보존되어 있다. 과거 제출본과의 일치는 별도 조사 대상이다.
 
 ## 실제 코드의 의존관계
 
@@ -60,7 +60,7 @@
 | B11 | ml.advise | 기권 표시와 signals 생성 조건이 완전히 같지 않음 | 기권 상황에서 충돌 신호의 정책·출력 일관성 검증 |
 | B12 | README·metrics·평가자료 | 과거 수치·사례 수·테스트 수의 버전 관계 불명 | 실행 결과마다 코드·자료·분모·명령 연결 |
 
-## 재현 절차: 후속 실행 환경에서 수행
+## 재현 절차
 
 별도 체크아웃을 사용해 기존 결과 파일을 덮어쓰지 않는다.
 
@@ -79,8 +79,9 @@ CLI evaluate의 종료코드만으로 모든 계층이 목표를 충족했다고
 
 전체 분류·강건성 평가는 자료 키·원본 가용성 확인 후 requirements-training.txt 환경에서 별도로 실행한다.
 build_index.py의 기본 출력 artifacts/와 운영 data/ 사이의 반입 과정도 기록한다.
-기존 workflow는 수동 실행 또는 제한된 브랜치 push 조건이며 pull_request 트리거가 없다.
-따라서 이 문서 PR에서 평가 CI가 자동 통과했다고 주장하지 않는다.
+이 PR의 championship-tests.yml은 보존 버전/후보 버전의 단위시험과 CLI 평가를 실행한다.
+후보에서는 verify_championship_baseline.py로 README 외 기존 48개 파일의 바이트 보존도 검사한다.
+검증 로그와 범위는 [verification.md](verification.md)에 기록한다.
 
 각 실행 기록: 코드 commit, 입력 blob/해시, 규칙·모델·색인 버전, Python·패키지·OS·CPU·RAM,
 실행 명령, 시작/종료, 종료코드, 로그, 지표의 분자·분모, 실패 및 누락 계층.
@@ -89,4 +90,4 @@ build_index.py의 기본 출력 artifacts/와 운영 data/ 사이의 반입 과�
 ## 완료 범위
 
 현재 커밋 및 파일 정체성 보존, 코드 의존관계와 위험 목록은 작성 완료.
-실행 기준선 측정, 제출 당시 버전 확인, 원본 데이터 기반 분류 재현은 미완료이며 후속 작업으로 남긴다.
+단위시험·패키지 CLI 실행 기준선은 verification.md 참조. 제출 당시 버전 확인, 원본 데이터 기반 전체 재학습, 군 실증은 미완료다.

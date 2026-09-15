@@ -1,0 +1,55 @@
+test_display_name_masks_unit_identifiers_and_contract_round (test_milcheck.TestContractIndex.test_display_name_masks_unit_identifiers_and_contract_round) ... ok
+test_no_personal_fields_in_index (test_milcheck.TestContractIndex.test_no_personal_fields_in_index) ... ok
+test_search_never_returns_raw_unit_name (test_milcheck.TestContractIndex.test_search_never_returns_raw_unit_name) ... ok
+test_similar_search_returns_ranked_hits (test_milcheck.TestContractIndex.test_similar_search_returns_ranked_hits) ... ok
+test_split_demo_reproduces_submitted_public_data_case (test_milcheck.TestContractIndex.test_split_demo_reproduces_submitted_public_data_case) ... ok
+test_advisory_section_hidden_when_no_reference_signal (test_milcheck.TestDemoRendering.test_advisory_section_hidden_when_no_reference_signal) ... ok
+test_checklist_counts_match_displayed_rows (test_milcheck.TestDemoRendering.test_checklist_counts_match_displayed_rows) ... ok
+test_checklist_covers_every_required_item (test_milcheck.TestDemoRendering.test_checklist_covers_every_required_item) ... ok
+test_evidence_labels_cover_all_rule_keys (test_milcheck.TestDemoRendering.test_evidence_labels_cover_all_rule_keys) ... ok
+test_method_signal_uses_correct_particle (test_milcheck.TestDemoRendering.test_method_signal_uses_correct_particle) ... ok
+test_no_internal_keys_are_shown (test_milcheck.TestDemoRendering.test_no_internal_keys_are_shown) ... ok
+test_vendor_attestation_shown_as_partial_not_confirmed (test_milcheck.TestDemoRendering.test_vendor_attestation_shown_as_partial_not_confirmed) ... ok
+test_article_abstention_is_explicit (test_milcheck.TestEvaluationSuite.test_article_abstention_is_explicit) ... ok
+test_audit_reproduction_baseline (test_milcheck.TestEvaluationSuite.test_audit_reproduction_baseline) ... ok
+test_extraction_holdout_baseline (test_milcheck.TestEvaluationSuite.test_extraction_holdout_baseline) ... ok
+test_low_information_input_withholds_recommendations (test_milcheck.TestEvaluationSuite.test_low_information_input_withholds_recommendations) ... ok
+test_method_review_demo_preset_is_distinct_from_out_of_scope (test_milcheck.TestEvaluationSuite.test_method_review_demo_preset_is_distinct_from_out_of_scope) ... ok
+test_retrieval_baseline (test_milcheck.TestEvaluationSuite.test_retrieval_baseline) ... ok
+test_rule_regression_has_no_false_pass (test_milcheck.TestEvaluationSuite.test_rule_regression_has_no_false_pass) ... ok
+test_documented_additional_types_are_extractable (test_milcheck.TestExtraction.test_documented_additional_types_are_extractable) ... ok
+test_internal_delay_is_flagged (test_milcheck.TestExtraction.test_internal_delay_is_flagged) ... ok
+test_korean_compound_numerals (test_milcheck.TestExtraction.test_korean_compound_numerals) ... ok
+test_negated_market_search_is_not_counted_as_evidence (test_milcheck.TestExtraction.test_negated_market_search_is_not_counted_as_evidence) ... ok
+test_specific_technical_service_is_extractable (test_milcheck.TestExtraction.test_specific_technical_service_is_extractable) ... ok
+test_vat_inclusive_is_converted (test_milcheck.TestExtraction.test_vat_inclusive_is_converted) ... ok
+test_multiple_evidence_in_one_sentence (test_milcheck.TestExtractionNegationBoundaries.test_multiple_evidence_in_one_sentence) ... ok
+test_particle_between_noun_and_verb (test_milcheck.TestExtractionNegationBoundaries.test_particle_between_noun_and_verb) ... ok
+test_trailing_negation_keeps_earlier_items (test_milcheck.TestExtractionNegationBoundaries.test_trailing_negation_keeps_earlier_items) ... ok
+test_vendor_attestation_is_not_counted_as_evidence (test_milcheck.TestExtractionNegationBoundaries.test_vendor_attestation_is_not_counted_as_evidence) ... ok
+test_checklist_summary_uses_independent_evidence_wording (test_milcheck.TestLatestInputFixes.test_checklist_summary_uses_independent_evidence_wording) ... ok
+test_completed_split_review_is_not_a_split_risk (test_milcheck.TestLatestInputFixes.test_completed_split_review_is_not_a_split_risk) ... ok
+test_construction_is_classified_before_scope_check (test_milcheck.TestLatestInputFixes.test_construction_is_classified_before_scope_check) ... ok
+test_coordinated_negated_evidence_is_not_counted (test_milcheck.TestLatestInputFixes.test_coordinated_negated_evidence_is_not_counted) ... ok
+test_advisory_signals_are_labelled (test_milcheck.TestLayerAuthority.test_advisory_signals_are_labelled) ... ok
+test_decision_unchanged_by_advisory_layers (test_milcheck.TestLayerAuthority.test_decision_unchanged_by_advisory_layers) ... ok
+test_method_review_case_has_competition_signal (test_milcheck.TestLayerAuthority.test_method_review_case_has_competition_signal) ... ok
+test_classifier_is_deterministic (test_milcheck.TestOfflineInference.test_classifier_is_deterministic) ... ok
+test_models_load_and_predict (test_milcheck.TestOfflineInference.test_models_load_and_predict) ... ok
+test_explicit_small_amount_wins_over_urgency_word (test_milcheck.TestRecentFixes.test_explicit_small_amount_wins_over_urgency_word) ... ok
+test_insufficient_input_is_not_out_of_scope (test_milcheck.TestRecentFixes.test_insufficient_input_is_not_out_of_scope) ... ok
+test_recent_same_item_statement_counts_as_split_review (test_milcheck.TestRecentFixes.test_recent_same_item_statement_counts_as_split_review) ... ok
+test_determinism (test_milcheck.TestRules.test_determinism) ... ok
+test_documented_additional_types_are_conservative (test_milcheck.TestRules.test_documented_additional_types_are_conservative) ... ok
+test_out_of_scope_categories (test_milcheck.TestRules.test_out_of_scope_categories) ... ok
+test_self_created_urgency_is_rejected (test_milcheck.TestRules.test_self_created_urgency_is_rejected) ... ok
+test_single_supplier_uses_consistent_rule_key (test_milcheck.TestRules.test_single_supplier_uses_consistent_rule_key) ... ok
+test_small_amount_threshold_boundary (test_milcheck.TestRules.test_small_amount_threshold_boundary) ... ok
+test_review_is_hidden_until_intake_confirmation (test_milcheck.TestWorkflowPresentation.test_review_is_hidden_until_intake_confirmation) ... ok
+test_split_detail_card_exposes_candidate_basis (test_milcheck.TestWorkflowPresentation.test_split_detail_card_exposes_candidate_basis) ... ok
+test_split_window_is_day_precise_and_excludes_current_record (test_milcheck.TestWorkflowPresentation.test_split_window_is_day_precise_and_excludes_current_record) ... ok
+
+----------------------------------------------------------------------
+Ran 50 tests in 14.824s
+
+OK
