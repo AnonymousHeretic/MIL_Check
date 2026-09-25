@@ -193,6 +193,10 @@ class EndpointConfig:
     api_key: str = "local-only"
     timeout_seconds: int = 120
     allowed_hosts: frozenset[str] = frozenset()   # 승인된 내부 서버 호스트명(선택)
+    max_tokens: int = 2048
+    # 런타임별 추가 요청 필드(예: vLLM+Qwen3 사고 모드 끄기
+    # {"chat_template_kwargs": {"enable_thinking": false}}). 핵심 필드는 덮어쓸 수 없다.
+    extra_body: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls) -> "EndpointConfig":
@@ -202,6 +206,9 @@ class EndpointConfig:
             model=os.environ.get("MILCHECK_LLM_MODEL", cls.model),
             api_key=os.environ.get("MILCHECK_LLM_API_KEY", cls.api_key),
             allowed_hosts=frozenset(h.strip().lower() for h in hosts.split(",") if h.strip()),
+            timeout_seconds=int(os.environ.get("MILCHECK_LLM_TIMEOUT", cls.timeout_seconds)),
+            max_tokens=int(os.environ.get("MILCHECK_LLM_MAX_TOKENS", cls.max_tokens)),
+            extra_body=json.loads(os.environ.get("MILCHECK_LLM_EXTRA_BODY", "{}") or "{}"),
         )
 
 
@@ -263,7 +270,8 @@ def build_messages(documents: list[Document]) -> list[dict[str, str]]:
 # 응답 검증
 # --------------------------------------------------------------------------
 def _strip_fence(raw: str) -> str:
-    text = raw.strip()
+    # 사고형 모델의 <think>…</think> 블록은 출력 데이터가 아니므로 제거한다.
+    text = re.sub(r"^\s*<think>.*?</think>", "", raw, count=1, flags=re.S).strip()
     m = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.S)
     return m.group(1) if m else text
 
@@ -580,9 +588,12 @@ class DocumentUnderstanding:
         except UnderstandingError as exc:
             return self._unavailable(documents, str(exc))
 
-        body = {"model": self.config.model, "temperature": 0,
-                "response_format": {"type": "json_object"},
-                "messages": build_messages(documents)}
+        protected = {"model", "messages", "temperature", "response_format", "max_tokens"}
+        body = {k: v for k, v in self.config.extra_body.items() if k not in protected}
+        body.update({"model": self.config.model, "temperature": 0,
+                     "max_tokens": self.config.max_tokens,
+                     "response_format": {"type": "json_object"},
+                     "messages": build_messages(documents)})
         body_hash = hashlib.sha256(
             json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         headers = {"Content-Type": "application/json",

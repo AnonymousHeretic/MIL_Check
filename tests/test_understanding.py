@@ -217,6 +217,20 @@ class ValidationTests(unittest.TestCase):
                             for q in result.questions))
         self.assertTrue(any(r["kind"] == "question" for r in result.rejected))
 
+    def test_think_block_stripped(self):
+        text = "<think>\n추론 과정\n</think>\n" + json.dumps(base_payload(), ensure_ascii=False)
+        result, _ = run(envelope(text))
+        self.assertEqual(result.component_status, "ok")
+
+    def test_extra_body_cannot_override_core_fields(self):
+        cfg = EndpointConfig(extra_body={"chat_template_kwargs": {"enable_thinking": False},
+                                         "temperature": 1.5, "messages": []})
+        _, transport = run(base_payload(), config=cfg)
+        body = transport.calls[0]["body"]
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertEqual(body["temperature"], 0)
+        self.assertTrue(body["messages"])
+
     def test_run_record_hashes(self):
         result, _ = run(base_payload())
         rec = result.run_record
