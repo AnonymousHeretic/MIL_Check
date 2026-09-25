@@ -1,0 +1,441 @@
+{
+  "run_date": "2026-09-25",
+  "python": "3.11.15",
+  "corpus_documents": 17,
+  "queries": 30,
+  "gold_per_query": {
+    "1": 24,
+    "2": 5,
+    "3": 1
+  },
+  "gold_document_distribution": {
+    "LAW-003": 4,
+    "LAW-004": 4,
+    "LAW-005": 4,
+    "LAW-002": 3,
+    "REG-001": 3,
+    "LAW-006": 2,
+    "LAW-001": 2,
+    "AUDIT-002": 2,
+    "AUDIT-001": 2,
+    "AUDIT-004": 2,
+    "MND-002": 2,
+    "CASE-003": 2,
+    "AUDIT-003": 1,
+    "AUDIT-005": 1,
+    "MND-001": 1,
+    "CASE-001": 1,
+    "CASE-002": 1
+  },
+  "random_baseline_recall": {
+    "at_1": 0.0725,
+    "at_3": 0.2118,
+    "at_5": 0.3436
+  },
+  "production_default_mode": "ngram (agent.py retrieval_mode)",
+  "by_mode": {
+    "ngram": {
+      "recall_at_1": {
+        "hits": 29,
+        "n": 30,
+        "value": 0.9667,
+        "wilson95": [
+          0.8333,
+          0.9941
+        ]
+      },
+      "recall_at_3": {
+        "hits": 29,
+        "n": 30,
+        "value": 0.9667,
+        "wilson95": [
+          0.8333,
+          0.9941
+        ]
+      },
+      "recall_at_5": {
+        "hits": 30,
+        "n": 30,
+        "value": 1.0,
+        "wilson95": [
+          0.8865,
+          1.0
+        ]
+      },
+      "mrr_at_5": 0.975,
+      "not_rank1": [
+        {
+          "qid": "R17",
+          "gold": [
+            "AUDIT-001"
+          ],
+          "top5": [
+            "AUDIT-003",
+            "AUDIT-005",
+            "AUDIT-004",
+            "AUDIT-001",
+            "LAW-001"
+          ],
+          "rank": 4
+        }
+      ]
+    },
+    "bm25": {
+      "recall_at_1": {
+        "hits": 16,
+        "n": 30,
+        "value": 0.5333,
+        "wilson95": [
+          0.3614,
+          0.6977
+        ]
+      },
+      "recall_at_3": {
+        "hits": 19,
+        "n": 30,
+        "value": 0.6333,
+        "wilson95": [
+          0.4551,
+          0.7813
+        ]
+      },
+      "recall_at_5": {
+        "hits": 20,
+        "n": 30,
+        "value": 0.6667,
+        "wilson95": [
+          0.4878,
+          0.8077
+        ]
+      },
+      "mrr_at_5": 0.5806,
+      "not_rank1": [
+        {
+          "qid": "R01",
+          "gold": [
+            "LAW-003"
+          ],
+          "top5": [
+            "AUDIT-003",
+            "LAW-003",
+            "LAW-006",
+            "CASE-002",
+            "CASE-003"
+          ],
+          "rank": 2
+        },
+        {
+          "qid": "R03",
+          "gold": [
+            "LAW-003"
+          ],
+          "top5": [
+            "CASE-002",
+            "MND-002",
+            "LAW-003",
+            "AUDIT-004"
+          ],
+          "rank": 3
+        },
+        {
+          "qid": "R04",
+          "gold": [
+            "LAW-004"
+          ],
+          "top5": [
+            "AUDIT-003",
+            "CASE-002"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R05",
+          "gold": [
+            "LAW-004"
+          ],
+          "top5": [
+            "CASE-003",
+            "CASE-002",
+            "AUDIT-001",
+            "AUDIT-003",
+            "MND-001"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R06",
+          "gold": [
+            "LAW-004"
+          ],
+          "top5": [
+            "CASE-002",
+            "REG-001",
+            "MND-002"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R08",
+          "gold": [
+            "LAW-005"
+          ],
+          "top5": [
+            "CASE-001",
+            "LAW-006",
+            "LAW-003",
+            "LAW-005",
+            "REG-001"
+          ],
+          "rank": 4
+        },
+        {
+          "qid": "R10",
+          "gold": [
+            "LAW-006"
+          ],
+          "top5": [
+            "CASE-002",
+            "LAW-005"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R13",
+          "gold": [
+            "LAW-002"
+          ],
+          "top5": [
+            "MND-001",
+            "LAW-004",
+            "AUDIT-005",
+            "LAW-006",
+            "AUDIT-001"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R16",
+          "gold": [
+            "AUDIT-001",
+            "AUDIT-005"
+          ],
+          "top5": [],
+          "rank": null
+        },
+        {
+          "qid": "R17",
+          "gold": [
+            "AUDIT-001"
+          ],
+          "top5": [
+            "CASE-003",
+            "CASE-002",
+            "AUDIT-001",
+            "AUDIT-003",
+            "MND-001"
+          ],
+          "rank": 3
+        },
+        {
+          "qid": "R19",
+          "gold": [
+            "AUDIT-002"
+          ],
+          "top5": [],
+          "rank": null
+        },
+        {
+          "qid": "R20",
+          "gold": [
+            "REG-001"
+          ],
+          "top5": [],
+          "rank": null
+        },
+        {
+          "qid": "R21",
+          "gold": [
+            "REG-001"
+          ],
+          "top5": [
+            "CASE-002",
+            "LAW-001",
+            "LAW-002"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R23",
+          "gold": [
+            "MND-002"
+          ],
+          "top5": [],
+          "rank": null
+        }
+      ]
+    },
+    "hybrid": {
+      "recall_at_1": {
+        "hits": 21,
+        "n": 30,
+        "value": 0.7,
+        "wilson95": [
+          0.5212,
+          0.8334
+        ]
+      },
+      "recall_at_3": {
+        "hits": 26,
+        "n": 30,
+        "value": 0.8667,
+        "wilson95": [
+          0.7032,
+          0.9469
+        ]
+      },
+      "recall_at_5": {
+        "hits": 29,
+        "n": 30,
+        "value": 0.9667,
+        "wilson95": [
+          0.8333,
+          0.9941
+        ]
+      },
+      "mrr_at_5": 0.7972,
+      "not_rank1": [
+        {
+          "qid": "R03",
+          "gold": [
+            "LAW-003"
+          ],
+          "top5": [
+            "CASE-002",
+            "LAW-003",
+            "MND-002",
+            "AUDIT-004",
+            "CASE-003"
+          ],
+          "rank": 2
+        },
+        {
+          "qid": "R04",
+          "gold": [
+            "LAW-004"
+          ],
+          "top5": [
+            "AUDIT-003",
+            "CASE-002",
+            "LAW-004",
+            "LAW-005",
+            "AUDIT-001"
+          ],
+          "rank": 3
+        },
+        {
+          "qid": "R05",
+          "gold": [
+            "LAW-004"
+          ],
+          "top5": [
+            "CASE-003",
+            "CASE-002",
+            "AUDIT-003",
+            "AUDIT-001",
+            "LAW-001"
+          ],
+          "rank": null
+        },
+        {
+          "qid": "R06",
+          "gold": [
+            "LAW-004"
+          ],
+          "top5": [
+            "CASE-002",
+            "REG-001",
+            "MND-002",
+            "LAW-004",
+            "LAW-005"
+          ],
+          "rank": 4
+        },
+        {
+          "qid": "R08",
+          "gold": [
+            "LAW-005"
+          ],
+          "top5": [
+            "CASE-001",
+            "LAW-005",
+            "LAW-006",
+            "LAW-003",
+            "REG-001"
+          ],
+          "rank": 2
+        },
+        {
+          "qid": "R10",
+          "gold": [
+            "LAW-006"
+          ],
+          "top5": [
+            "LAW-005",
+            "CASE-002",
+            "LAW-006",
+            "MND-001",
+            "CASE-001"
+          ],
+          "rank": 3
+        },
+        {
+          "qid": "R13",
+          "gold": [
+            "LAW-002"
+          ],
+          "top5": [
+            "MND-001",
+            "REG-001",
+            "AUDIT-005",
+            "LAW-002",
+            "LAW-004"
+          ],
+          "rank": 4
+        },
+        {
+          "qid": "R17",
+          "gold": [
+            "AUDIT-001"
+          ],
+          "top5": [
+            "AUDIT-003",
+            "AUDIT-001",
+            "CASE-003",
+            "AUDIT-005",
+            "CASE-002"
+          ],
+          "rank": 2
+        },
+        {
+          "qid": "R21",
+          "gold": [
+            "REG-001"
+          ],
+          "top5": [
+            "CASE-002",
+            "LAW-002",
+            "LAW-001",
+            "REG-001",
+            "AUDIT-001"
+          ],
+          "rank": 4
+        }
+      ]
+    }
+  },
+  "caveats": [
+    "말뭉치가 17문서로 작아 Recall@3의 무작위 기댓값이 이미 20% 안팎이다.",
+    "30질의는 반복 사용된 회귀 자료다. 일반화 성능·신규 LLM 성능으로 인용하지 않는다.",
+    "법령 원문 버전·조항 단위 정확성은 측정하지 않는다(문서 단위 적중만)."
+  ]
+}
