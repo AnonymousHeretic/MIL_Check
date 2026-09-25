@@ -28,7 +28,7 @@ from typing import Any, Callable
 from .extract import parse_amount
 
 SCHEMA_VERSION = "llm-contract-v1"
-EXTRACTOR_VERSION = "understanding-0.2.0"
+EXTRACTOR_VERSION = "understanding-0.3.0"
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_DOCUMENT_CHARS = 60_000
 
@@ -37,8 +37,6 @@ MAX_DOCUMENT_CHARS = 60_000
 # --------------------------------------------------------------------------
 FIELD_SPECS: dict[str, dict[str, Any]] = {
     "item_name": {"type": "str", "desc": "구매 품명"},
-    "contract_category": {"type": "enum", "values": ["goods", "service"],
-                          "desc": "문서에 '물품' 또는 '용역'이 명시된 경우에만"},
     "estimated_price_krw": {"type": "int_krw", "desc": "요청서의 '추정가격'만. 견적 합계를 넣지 말 것"},
     "total_amount_krw": {"type": "int_krw", "desc": "견적서의 '합계' 금액"},
     "unit_price_krw": {"type": "int_krw", "desc": "'단가'라고 적힌 1개당 가격만"},
@@ -57,6 +55,24 @@ FIELD_SPECS: dict[str, dict[str, Any]] = {
     "quote_count": {"type": "int", "desc": "견적 수"},
     "delivery_deadline": {"type": "date", "desc": "납기 YYYY-MM-DD"},
 }
+
+# 물품/용역 구분(contract_category)은 모델이 추출하지 않는다. 담당자가 검토를 시작할 때
+# 업무 유형을 고르며 정해지는 사건 속성이다(2026-09-25 사용자 결정).
+
+# 필드별로 값이 나올 수 있는 문서 유형. 여기 없는 필드는 모든 문서 허용.
+FIELD_SOURCES: dict[str, set[str]] = {
+    "estimated_price_krw": {"request"},
+    "sole_source_basis": {"request", "compatibility_statement"},
+    "quote_status": {"request", "quote"},
+    "total_amount_krw": {"quote"},
+    "unit_price_krw": {"quote"},
+    "quote_count": {"request"},
+    "existing_equipment": {"request", "compatibility_statement"},
+}
+
+# '없음/모름'을 뜻하는 값은 사실이 아니라 부재다 → 받지 않고 누락 질문으로 처리.
+ABSENCE_VALUES: dict[str, set[Any]] = {"tax_status": {"unknown"}}
+_NEGATION_RE = re.compile(r"없|미제출|미접수|받지\s*않|생략")
 
 # 최초 업무에서 확인이 반드시 필요한 필드(누락 시 질문 생성)
 REQUIRED_FIELDS = ("item_name", "estimated_price_krw", "tax_status",
@@ -252,6 +268,7 @@ SYSTEM_PROMPT = (
     "offset은 해당 문서 텍스트의 유니코드 문자 기준 [start,end)이며 quote는 그 구간의 원문과 정확히 같아야 한다. "
     "같은 필드에 서로 다른 값이 있으면 모두 facts에 넣는다(임의로 하나를 고르지 않는다). "
     "확인 완료·적법성·판정은 절대 표시하지 않는다. "
+    "문서에 해당 정보가 없으면 그 필드를 출력하지 않는다(unknown·none 같은 값으로 채우지 않는다). "
     "출력은 JSON 객체 하나만: {\"schema_version\": \"" + SCHEMA_VERSION + "\", "
     "\"facts\": [{\"field\", \"value\", \"source_refs\": [...]}], "
     "\"evidence_claims\": [{\"requirement_id\", \"content_support\": supported|unsupported|unknown, \"source_refs\"}], "
@@ -426,8 +443,8 @@ def validate_response(payload: Any, documents: list[Document]) -> tuple[
         if err:
             rejected.append({"kind": "fact", "index": i, "field": name, "reason": err})
             continue
-        if value is None:
-            continue  # 값 없음은 누락 질문 단계에서 처리
+        if value is None or value in ABSENCE_VALUES.get(name, set()):
+            continue  # 값 없음·부재 값은 누락 질문 단계에서 처리
         refs, issues = [], []
         for r in raw.get("source_refs") or []:
             ref, ref_err = _resolve_ref(r, docs)
@@ -440,6 +457,19 @@ def validate_response(payload: Any, documents: list[Document]) -> tuple[
         if not refs:
             rejected.append({"kind": "fact", "index": i, "field": name,
                              "reason": "검증 가능한 원문 인용 없음", "issues": issues})
+            continue
+        allowed = FIELD_SOURCES.get(name)
+        if allowed:
+            doc_types = {(d.document_id, d.revision): d.doc_type for d in documents}
+            refs = [r for r in refs if doc_types.get((r.document_id, r.revision)) in allowed]
+            if not refs:
+                rejected.append({"kind": "fact", "index": i, "field": name,
+                                 "reason": "이 필드가 나올 수 없는 문서 유형"})
+                continue
+        if name == "quote_status" and value == "none" and not any(
+                _NEGATION_RE.search(r.quote) for r in refs):
+            rejected.append({"kind": "fact", "index": i, "field": name,
+                             "reason": "견적 없음이 원문에 명시되지 않음"})
             continue
         if not _value_supported_by_quote(name, value, refs):
             rejected.append({"kind": "fact", "index": i, "field": name,

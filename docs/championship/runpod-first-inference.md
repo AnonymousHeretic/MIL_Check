@@ -49,6 +49,21 @@ for b in d['bundles']:
 문서별 추출(기본, 0.2.0)과 묶음 전체 추출(`MILCHECK_LLM_PER_DOCUMENT=0`)을 비교하려면 출력 파일명을 바꿔 두 번 실행한다.
 기록: [P3 첫 실행](sprint-0928/p3-first-inference-2026-09-25.md).
 
+## 2-1. 실제로 동작한 짧은 명령 (2026-09-25 L4 실행)
+
+웹 터미널에서 긴 블록 붙여넣기가 잘 안 되고, 백그라운드 `git log`는 페이저 때문에 멈춘다(`Stopped`). 아래 한 줄 명령들을 차례로 쓴다.
+
+```bash
+cd /root && pip install -q -U vllm && git clone -q -b work/championship-rebuild https://github.com/AnonymousHeretic/MIL_Check.git && git -C MIL_Check --no-pager log --oneline -1
+(nohup vllm serve Qwen/Qwen3-4B --host 127.0.0.1 --port 8000 --max-model-len 16384 --gpu-memory-utilization 0.85 > /root/vllm.log 2>&1 &) && echo 서버시작
+curl -s http://127.0.0.1:8000/v1/models | head -c 60; echo; tail -3 /root/vllm.log
+cd /root/MIL_Check && export MILCHECK_LLM_MODEL=Qwen/Qwen3-4B MILCHECK_LLM_EXTRA_BODY='{"chat_template_kwargs": {"enable_thinking": false}}' && MILCHECK_LLM_PER_DOCUMENT=1 python scripts/eval_understanding.py --mode live --output live-perdoc.json >/dev/null && MILCHECK_LLM_PER_DOCUMENT=0 python scripts/eval_understanding.py --mode live --output live-bundle.json >/dev/null && echo 측정완료
+python -c "import json;[print(f, {k:(v['value'] if isinstance(v,dict) else v) for k,v in json.load(open(f))['metrics'].items()}) for f in ('live-perdoc.json','live-bundle.json')]"
+```
+
+진행 확인(다른 터미널): `grep -c "POST /v1/chat" /root/vllm.log` — 문서별 22 + 묶음 10 = 32건이면 완료.
+터미널에서 `Ctrl+C`는 복사가 아니라 중지다. 드래그 후 우클릭 복사를 쓴다.
+
 ## 3. 끝나면 반드시
 
 Pod를 **Terminate**(Stop이 아님)해 과금을 멈춘다.

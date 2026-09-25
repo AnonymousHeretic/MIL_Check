@@ -50,3 +50,44 @@
 5. `contract_category` 라벨 기준은 미결정(명시만 인정 vs 문서 유형 추론). 0.2.0 프롬프트는 "명시된 경우에만"으로 지시.
 
 합성 개발세트 결과이며 최종 성능·군 현장 성능으로 인용하지 않는다.
+
+---
+
+# 2차 측정 — 추출기 0.2.0 (2026-09-25)
+
+출처: 사용자가 붙여 넣은 요약값. 원본 JSON 미보존. 코드 `9ab9e99`. 장비 **RunPod L4 24GB**(A5000 품절), `Qwen/Qwen3-4B` BF16, 사고 모드 끔, temperature 0, 각 모드 1회. 비용 약 USD 0.41(19.56 → 19.15).
+
+| 지표 | 묶음 전체 (`PER_DOCUMENT=0`) | 문서별 (`PER_DOCUMENT=1`) |
+|---|---|---|
+| 사실 정밀도 | 84.85% | 78.38% |
+| 사실 재현율 | 87.50% | 90.62% |
+| 충돌 재현율 / 정밀도 | 0/3 / — | 2/3 / 28.57% |
+| 누락 질문 재현율 · 조작 필수값 · 형식 실패 | 100% · 0 · 0 | 100% · 0 · 0 |
+| 증빙 유무 정확도 | 100% | 100% |
+| 경계 거부 | 31 | 49 |
+| 묶음당 p50 / 최대 | 34.42 / 45.83초 | 51.50 / 102.55초 |
+
+시간은 1차(A5000)와 장비가 달라 비교하지 않는다.
+
+문서별 모드 거부 사유: 검증 가능한 원문 인용 없음 17 · 질문 필드/문장 형식 오류 13 · 증빙 문서 인용 없는 입증 주장 12 · 값이 인용문에서 확인되지 않음 7.
+
+문서별 모드 틀림/놓침:
+
+| 묶음 | 틀림 | 놓침 |
+|---|---|---|
+| UD-01 | quote_status=none, sole_source_basis=single_supplier | — |
+| UD-02 | contract_category, estimated_price←견적 합계, existing_equipment=전술차량 | sole_source_basis |
+| UD-03 | existing_equipment=품명 | sole_source_basis |
+| UD-04 | — | — |
+| UD-05 | contract_category, quote_status=none | — |
+| UD-06 | contract_category | — |
+| UD-07 | existing_equipment=거치대 | sole_source_basis |
+| UD-08 | contract_category, existing_equipment=헤드셋 | supplier_name(누리통신), total_amount |
+| UD-09 | contract_category, quote_status=none, tax_status=unknown | — |
+| UD-10 | quote_status=planned | sole_source_basis |
+
+**원인:** 정보가 없는 문서에서 '없음/모름'(none·unknown)을 값으로 출력 → 코드가 충돌로 판정. 필드를 엉뚱한 문서에서 추출(견적 합계→추정가격, 공급확인서→계약 근거).
+
+**조치(0.3.0):** contract_category 추출 제외(사용자 결정: 업무 유형 선택 시 결정), 부재 값 무시, 필드별 출처 문서 제한. 상세는 [llm-contract-v1.md §4-2](../llm-contract-v1.md). 실제 모델 재측정 전.
+
+**라벨 메모:** `existing_equipment`는 UD-01만 정답이 있다. 다른 묶음의 '기존 거치대' 등 부분 명칭을 정답에 넣을지는 미결정.

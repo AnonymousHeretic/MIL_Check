@@ -296,6 +296,52 @@ class PerDocumentTests(unittest.TestCase):
         self.assertTrue(any(r.get("document_id") == "DOC-REQ" for r in result.rejected))
 
 
+class SourcePolicyTests(unittest.TestCase):
+    """0.3.0: 부재 값·필드별 출처 문서·물품/용역 구분 제외."""
+
+    def test_unknown_tax_is_absence_not_fact(self):
+        payload = base_payload()
+        payload["facts"][2] = fact("tax_status", "unknown", ref(REQ, "구매요구서"))
+        result, _ = run(payload)
+        self.assertNotIn("tax_status", {f.field for f in result.candidates})
+        self.assertTrue(any(q.affected_fields == ["tax_status"] and q.reason == "missing"
+                            for q in result.questions))
+        self.assertFalse(any(r.get("field") == "tax_status" for r in result.rejected))
+
+    def test_estimated_price_only_from_request(self):
+        payload = base_payload()
+        payload["facts"].append(fact("estimated_price_krw", 19800000, ref(QUOTE, "합계 19,800,000원")))
+        result, _ = run(payload, docs=(REQ, QUOTE))
+        prices = [f for f in result.candidates if f.field == "estimated_price_krw"]
+        self.assertEqual([f.value for f in prices], [18000000])
+        self.assertEqual(prices[0].status, "proposed")
+        self.assertTrue(any(r["reason"] == "이 필드가 나올 수 없는 문서 유형" for r in result.rejected))
+
+    def test_total_amount_only_from_quote(self):
+        payload = base_payload()
+        payload["facts"].append(fact("total_amount_krw", 18000000, ref(REQ, "추정가격 18,000,000원")))
+        result, _ = run(payload)
+        self.assertNotIn("total_amount_krw", {f.field for f in result.candidates})
+
+    def test_quote_none_requires_explicit_negation(self):
+        payload = base_payload()
+        payload["facts"].append(fact("quote_status", "none", ref(REQ, "구매요구서")))
+        result, _ = run(payload)
+        self.assertNotIn("quote_status", {f.field for f in result.candidates})
+        doc = Document("DOC-N", 1, doc_type="request", text="품명: 필터. 견적서 없음(긴급).")
+        ok = {"schema_version": SCHEMA_VERSION,
+              "facts": [fact("quote_status", "none", ref(doc, "견적서 없음"))]}
+        result, _ = run(ok, docs=(doc,))
+        self.assertEqual([f.value for f in result.candidates if f.field == "quote_status"], ["none"])
+
+    def test_contract_category_not_extracted(self):
+        payload = base_payload()
+        payload["facts"].append(fact("contract_category", "goods", ref(REQ, "구매요구서")))
+        result, transport = run(payload)
+        self.assertNotIn("contract_category", {f.field for f in result.candidates})
+        self.assertNotIn("contract_category", transport.calls[0]["body"]["messages"][1]["content"])
+
+
 class EndpointTests(unittest.TestCase):
     def test_external_hosts_blocked(self):
         for url in ("https://api.openai.com/v1", "http://10.0.0.5:8000/v1",

@@ -42,7 +42,6 @@
 | 필드 | 타입 | 비고 |
 |---|---|---|
 | item_name, supplier_name, existing_equipment | 문자열 ≤200자 | |
-| contract_category | goods / service | |
 | estimated_price_krw, total_amount_krw, unit_price_krw | 0 이상 정수(원) | 서로 다른 필드. 부동소수 금지 |
 | quantity, quote_count | 0 이상 정수 | |
 | tax_status | vat_included / vat_excluded / unknown | |
@@ -72,6 +71,14 @@
 기본값을 `per_document=True`로 바꿔 문서마다 별도 요청하고, 같은 필드·같은 값은 출처를 병합, 다른 값은 코드가 `conflicting`으로 판정한다.
 문서별 요청에서 다른 문서를 인용하면 거부된다. `quote_status=received`는 견적서(`quote`) 문서가 없으면 거부된다.
 응답 스키마는 변하지 않았다. `run_record.request_sha256`/`response_sha256`은 요청별 해시 목록이다.
+
+## 4-2. 출처 문서 제한과 부재 값 (추출기 0.3.0, 2026-09-25)
+
+2차 측정에서 정보가 없는 문서의 '없음/모름' 응답이 가짜 충돌을 만들었다(충돌 정밀도 28.6%).
+
+- **물품/용역 구분 제외:** `contract_category`는 모델 추출 대상이 아니다. 담당자가 검토 시작 시 업무 유형을 고르며 정해지는 사건 속성이다(사용자 결정, 2026-09-25). 모델이 내면 미허용 필드로 거부.
+- **부재 값:** `tax_status=unknown`은 사실로 받지 않고 누락 질문으로 처리. `quote_status=none`은 인용문에 '없/미제출/받지 않' 등 부정 표현이 있을 때만 인정.
+- **필드별 출처 문서:** `estimated_price_krw`·`quote_count`=요청서, `quote_status`=요청서·견적서, `sole_source_basis`·`existing_equipment`=요청서·호환성 사유서, `total_amount_krw`·`unit_price_krw`=견적서. 그 외 문서의 인용만 있으면 거부.
 
 ## 5. 실패 시 동작
 
