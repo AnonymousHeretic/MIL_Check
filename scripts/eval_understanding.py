@@ -35,8 +35,12 @@ def gold_echo_transport(bundle: dict):
     texts = {d["document_id"]: d["text"] for d in bundle["documents"]}
 
     def transport(url, body, headers, timeout):
+        user = body["messages"][1]["content"]
+        present = {d for d in texts if f'"document_id": "{d}"' in user}
         facts = []
         for f in bundle["gold"]["facts"]:
+            if f["document_id"] not in present:
+                continue
             start = texts[f["document_id"]].index(f["quote"])
             facts.append({"field": f["field"], "value": f["value"], "source_refs": [{
                 "document_id": f["document_id"], "revision": 1, "text_start": start,
@@ -71,6 +75,8 @@ def score_bundle(bundle: dict, result) -> dict:
         "fabricated_required": wrong_required,
         "evidence_presence_correct": absent_pred == set(gold["evidence_absent"]),
         "rejected": len(result.rejected),
+        "rejected_detail": [{k: r.get(k) for k in ("kind", "field", "reason", "document_id")}
+                            for r in result.rejected],
         "relocated_refs": sum(1 for c in result.candidates for r in c.source_refs if r.relocated),
     }
 
@@ -110,6 +116,7 @@ def main() -> int:
     report = {
         "mode": args.mode, "dataset": Path(args.data).name, "split": "dev",
         "n_bundles": len(rows), "code_commit": commit, "model": config.model if args.mode == "live" else None,
+        "per_document": config.per_document,
         "python": platform.python_version(), "machine": platform.machine(),
         "metrics": {
             "fact_precision": ratio(s("fact_tp"), s("fact_pred")),

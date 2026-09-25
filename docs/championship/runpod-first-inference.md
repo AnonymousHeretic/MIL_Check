@@ -34,7 +34,20 @@ nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
 pip show vllm | head -2
 ```
 
-결과 파일 `live-qwen3-4b.json`의 내용 전체와 위 두 명령의 출력을 기록으로 남긴다.
+요약 출력(Pod 종료 전 반드시 복사):
+
+```bash
+python -c "
+import json; d=json.load(open('live-qwen3-4b.json'))
+print(json.dumps(d['metrics'], ensure_ascii=False))
+for b in d['bundles']:
+    print(b['bundle_id'], b['component_status'], b['fact_tp'], '/', b['fact_gold'], 'miss', b['missed_facts'], 'false', b['false_facts'])
+    for r in b['rejected_detail']: print('   REJ', r)
+"
+```
+
+문서별 추출(기본, 0.2.0)과 묶음 전체 추출(`MILCHECK_LLM_PER_DOCUMENT=0`)을 비교하려면 출력 파일명을 바꿔 두 번 실행한다.
+기록: [P3 첫 실행](sprint-0928/p3-first-inference-2026-09-25.md).
 
 ## 3. 끝나면 반드시
 

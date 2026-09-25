@@ -28,7 +28,7 @@ from typing import Any, Callable
 from .extract import parse_amount
 
 SCHEMA_VERSION = "llm-contract-v1"
-EXTRACTOR_VERSION = "understanding-0.1.0"
+EXTRACTOR_VERSION = "understanding-0.2.0"
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_DOCUMENT_CHARS = 60_000
 
@@ -36,21 +36,26 @@ MAX_DOCUMENT_CHARS = 60_000
 # 최초 완결 업무(호환성·단독공급 사유 물품 구매)의 허용 필드
 # --------------------------------------------------------------------------
 FIELD_SPECS: dict[str, dict[str, Any]] = {
-    "item_name": {"type": "str"},
-    "contract_category": {"type": "enum", "values": ["goods", "service"]},
-    "estimated_price_krw": {"type": "int_krw"},
-    "total_amount_krw": {"type": "int_krw"},
-    "unit_price_krw": {"type": "int_krw"},
-    "quantity": {"type": "int"},
-    "tax_status": {"type": "enum", "values": ["vat_included", "vat_excluded", "unknown"]},
+    "item_name": {"type": "str", "desc": "구매 품명"},
+    "contract_category": {"type": "enum", "values": ["goods", "service"],
+                          "desc": "문서에 '물품' 또는 '용역'이 명시된 경우에만"},
+    "estimated_price_krw": {"type": "int_krw", "desc": "요청서의 '추정가격'만. 견적 합계를 넣지 말 것"},
+    "total_amount_krw": {"type": "int_krw", "desc": "견적서의 '합계' 금액"},
+    "unit_price_krw": {"type": "int_krw", "desc": "'단가'라고 적힌 1개당 가격만"},
+    "quantity": {"type": "int", "desc": "수량(개·대 등)"},
+    "tax_status": {"type": "enum", "values": ["vat_included", "vat_excluded", "unknown"],
+                   "desc": "이 문서의 금액에 부가세가 포함/별도인지"},
     "sole_source_basis": {"type": "enum", "values": [
         "compatibility", "patented_no_substitute",
-        "original_supplier_direct_service", "single_supplier"]},
-    "supplier_name": {"type": "str"},
-    "existing_equipment": {"type": "str"},
-    "quote_status": {"type": "enum", "values": ["received", "planned", "none"]},
-    "quote_count": {"type": "int"},
-    "delivery_deadline": {"type": "date"},
+        "original_supplier_direct_service", "single_supplier"],
+        "desc": "호환 필요=compatibility, 특허·대체품 없음=patented_no_substitute, "
+                "제조·공급자 직접 설치·정비=original_supplier_direct_service, 단일 업체만 공급=single_supplier"},
+    "supplier_name": {"type": "str", "desc": "업체명만"},
+    "existing_equipment": {"type": "str", "desc": "기존 장비의 모델명·명칭만(문장 금지)"},
+    "quote_status": {"type": "enum", "values": ["received", "planned", "none"],
+                     "desc": "견적 예정=planned, 견적 없음 명시=none. 견적서 문서 자체는 코드가 판단"},
+    "quote_count": {"type": "int", "desc": "견적 수"},
+    "delivery_deadline": {"type": "date", "desc": "납기 YYYY-MM-DD"},
 }
 
 # 최초 업무에서 확인이 반드시 필요한 필드(누락 시 질문 생성)
@@ -197,6 +202,8 @@ class EndpointConfig:
     # 런타임별 추가 요청 필드(예: vLLM+Qwen3 사고 모드 끄기
     # {"chat_template_kwargs": {"enable_thinking": false}}). 핵심 필드는 덮어쓸 수 없다.
     extra_body: dict[str, Any] = field(default_factory=dict)
+    # True: 문서마다 따로 추출한 뒤 충돌은 코드가 판정(모델이 한 값만 고르는 문제 회피)
+    per_document: bool = True
 
     @classmethod
     def from_env(cls) -> "EndpointConfig":
@@ -209,6 +216,7 @@ class EndpointConfig:
             timeout_seconds=int(os.environ.get("MILCHECK_LLM_TIMEOUT", cls.timeout_seconds)),
             max_tokens=int(os.environ.get("MILCHECK_LLM_MAX_TOKENS", cls.max_tokens)),
             extra_body=json.loads(os.environ.get("MILCHECK_LLM_EXTRA_BODY", "{}") or "{}"),
+            per_document=os.environ.get("MILCHECK_LLM_PER_DOCUMENT", "1") != "0",
         )
 
 
@@ -255,7 +263,7 @@ def build_messages(documents: list[Document]) -> list[dict[str, str]]:
     field_lines = []
     for name, spec in FIELD_SPECS.items():
         extra = f" ({'|'.join(spec['values'])})" if spec["type"] == "enum" else f" ({spec['type']})"
-        field_lines.append(f"- {name}{extra}")
+        field_lines.append(f"- {name}{extra}: {spec.get('desc', '')}")
     req_lines = [f"- {rid}: {spec['label']}" for rid, spec in EVIDENCE_REQUIREMENTS.items()]
     docs = []
     for doc in documents:
@@ -451,6 +459,22 @@ def validate_response(payload: Any, documents: list[Document]) -> tuple[
 # --------------------------------------------------------------------------
 # 결정론적 후처리: 충돌 표시, 증빙 존재, 질문
 # --------------------------------------------------------------------------
+def _dedupe_facts(facts: list[CandidateFact]) -> list[CandidateFact]:
+    """같은 필드·같은 값은 출처를 합쳐 하나로, fact_id를 다시 매긴다."""
+    merged: dict[tuple[str, str], CandidateFact] = {}
+    for f in facts:
+        key = (f.field, json.dumps(f.value, ensure_ascii=False))
+        if key in merged:
+            merged[key].source_refs.extend(f.source_refs)
+            merged[key].issues.extend(f.issues)
+        else:
+            merged[key] = f
+    out = list(merged.values())
+    for i, f in enumerate(out, 1):
+        f.fact_id = f"F{i:03d}"
+    return out
+
+
 def _mark_conflicts(facts: list[CandidateFact]) -> set[str]:
     by_field: dict[str, set[str]] = {}
     for f in facts:
@@ -574,6 +598,15 @@ class DocumentUnderstanding:
             self._run_record(documents, body_hash, response_hash,
                              f"자동 추출 불가: {reason}. 원문을 보며 수동 입력하십시오."))
 
+    def _body(self, documents: list[Document]) -> dict[str, Any]:
+        protected = {"model", "messages", "temperature", "response_format", "max_tokens"}
+        body = {k: v for k, v in self.config.extra_body.items() if k not in protected}
+        body.update({"model": self.config.model, "temperature": 0,
+                     "max_tokens": self.config.max_tokens,
+                     "response_format": {"type": "json_object"},
+                     "messages": build_messages(documents)})
+        return body
+
     def understand(self, documents: list[Document]) -> UnderstandingResult:
         for d in documents:
             if d.doc_type not in DOC_TYPES:
@@ -588,32 +621,50 @@ class DocumentUnderstanding:
         except UnderstandingError as exc:
             return self._unavailable(documents, str(exc))
 
-        protected = {"model", "messages", "temperature", "response_format", "max_tokens"}
-        body = {k: v for k, v in self.config.extra_body.items() if k not in protected}
-        body.update({"model": self.config.model, "temperature": 0,
-                     "max_tokens": self.config.max_tokens,
-                     "response_format": {"type": "json_object"},
-                     "messages": build_messages(documents)})
-        body_hash = hashlib.sha256(
-            json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         headers = {"Content-Type": "application/json",
                    "Authorization": f"Bearer {self.config.api_key}"}
-        try:
-            raw = self.transport(base + "/chat/completions", body, headers,
-                                 self.config.timeout_seconds)
-        except UnderstandingError as exc:
-            return self._unavailable(documents, str(exc), body_hash)
-        response_hash = hashlib.sha256(raw).hexdigest()
-        try:
-            envelope = json.loads(raw.decode("utf-8"))
-            content = envelope["choices"][0]["message"]["content"]
-            payload = json.loads(_strip_fence(content))
-            facts, claims, model_qs, rejected = validate_response(payload, documents)
-        except (UnicodeDecodeError, ValueError, KeyError, IndexError, TypeError) as exc:
-            return self._unavailable(documents, f"응답 해석 실패({type(exc).__name__})",
-                                     body_hash, response_hash)
-        except UnderstandingError as exc:
-            return self._unavailable(documents, str(exc), body_hash, response_hash)
+        groups = [[d] for d in documents] if self.config.per_document else [documents]
+        facts: list[CandidateFact] = []
+        claims: list[dict[str, Any]] = []
+        model_qs: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        req_hashes, resp_hashes = [], []
+        for group in groups:
+            body = self._body(group)
+            body_hash = hashlib.sha256(
+                json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+            req_hashes.append(body_hash)
+            try:
+                raw = self.transport(base + "/chat/completions", body, headers,
+                                     self.config.timeout_seconds)
+            except UnderstandingError as exc:
+                return self._unavailable(documents, str(exc), req_hashes, resp_hashes)
+            resp_hashes.append(hashlib.sha256(raw).hexdigest())
+            try:
+                envelope = json.loads(raw.decode("utf-8"))
+                content = envelope["choices"][0]["message"]["content"]
+                payload = json.loads(_strip_fence(content))
+                # 인용 검증은 전체 문서 기준(다른 문서 인용은 제공 문서가 아니므로 거부됨)
+                g_facts, g_claims, g_qs, g_rej = validate_response(payload, group)
+            except (UnicodeDecodeError, ValueError, KeyError, IndexError, TypeError) as exc:
+                return self._unavailable(documents, f"응답 해석 실패({type(exc).__name__})",
+                                         req_hashes, resp_hashes)
+            except UnderstandingError as exc:
+                return self._unavailable(documents, str(exc), req_hashes, resp_hashes)
+            if self.config.per_document:
+                for r in g_rej:
+                    r["document_id"] = group[0].document_id
+            facts.extend(g_facts)
+            claims.extend(g_claims)
+            model_qs.extend(g_qs)
+            rejected.extend(g_rej)
+        facts = _dedupe_facts(facts)
+        if not any(d.doc_type == "quote" for d in documents):
+            for f in [f for f in facts if f.field == "quote_status" and f.value == "received"]:
+                facts.remove(f)
+                rejected.append({"kind": "fact", "field": "quote_status",
+                                 "reason": "견적서 문서 없이 received 주장"})
+        body_hash, response_hash = req_hashes, resp_hashes
 
         conflicted = _mark_conflicts(facts)
         evidence = _assess_evidence(documents, claims, rejected)

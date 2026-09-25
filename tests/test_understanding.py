@@ -67,7 +67,7 @@ class MockTransport:
 
 def run(payload, docs=(REQ,), config=None):
     transport = MockTransport(envelope(payload) if not isinstance(payload, (bytes, Exception)) else payload)
-    du = DocumentUnderstanding(config or EndpointConfig(), transport=transport)
+    du = DocumentUnderstanding(config or EndpointConfig(per_document=False), transport=transport)
     return du.understand(list(docs)), transport
 
 
@@ -224,7 +224,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_extra_body_cannot_override_core_fields(self):
         cfg = EndpointConfig(extra_body={"chat_template_kwargs": {"enable_thinking": False},
-                                         "temperature": 1.5, "messages": []})
+                                         "temperature": 1.5, "messages": []}, per_document=False)
         _, transport = run(base_payload(), config=cfg)
         body = transport.calls[0]["body"]
         self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
@@ -234,8 +234,8 @@ class ValidationTests(unittest.TestCase):
     def test_run_record_hashes(self):
         result, _ = run(base_payload())
         rec = result.run_record
-        self.assertEqual(len(rec["request_sha256"]), 64)
-        self.assertEqual(len(rec["response_sha256"]), 64)
+        self.assertEqual([len(h) for h in rec["request_sha256"]], [64])
+        self.assertEqual([len(h) for h in rec["response_sha256"]], [64])
         self.assertEqual(rec["documents"][0]["content_hash"], REQ.content_hash)
 
     def test_oversized_document_not_sent(self):
@@ -243,6 +243,57 @@ class ValidationTests(unittest.TestCase):
         result, transport = run(base_payload(), docs=(big,))
         self.assertEqual(result.component_status, "unavailable")
         self.assertEqual(transport.calls, [])
+
+
+class PerDocumentTests(unittest.TestCase):
+    """문서별 추출: 모델이 문서마다 한 값만 내도 충돌은 코드가 잡는다."""
+
+    class Router:
+        def __init__(self, by_doc):
+            self.by_doc = by_doc
+            self.calls = []
+
+        def __call__(self, url, body, headers, timeout):
+            user = body["messages"][1]["content"]
+            doc_ids = [d for d in self.by_doc if f'"document_id": "{d}"' in user]
+            self.calls.append(doc_ids)
+            assert len(doc_ids) == 1, doc_ids
+            payload = {"schema_version": SCHEMA_VERSION, "facts": self.by_doc[doc_ids[0]]}
+            return envelope(payload)
+
+    def understand(self, by_doc, docs):
+        router = self.Router(by_doc)
+        du = DocumentUnderstanding(EndpointConfig(per_document=True), transport=router)
+        return du.understand(list(docs)), router
+
+    def test_one_call_per_document_and_conflict_detected(self):
+        by_doc = {
+            "DOC-REQ": [fact("tax_status", "vat_excluded", ref(REQ, "부가세 별도")),
+                        fact("supplier_name", "가나다전자", ref(REQ, "가나다전자"))],
+            "DOC-QT": [fact("tax_status", "vat_included", ref(QUOTE, "부가세 포함")),
+                       fact("supplier_name", "가나다전자", ref(QUOTE, "가나다전자"))],
+        }
+        result, router = self.understand(by_doc, (REQ, QUOTE))
+        self.assertEqual(len(router.calls), 2)
+        self.assertEqual({f.status for f in result.candidates if f.field == "tax_status"},
+                         {"conflicting"})
+        suppliers = [f for f in result.candidates if f.field == "supplier_name"]
+        self.assertEqual(len(suppliers), 1)             # 같은 값은 병합
+        self.assertEqual(len(suppliers[0].source_refs), 2)
+        self.assertEqual(suppliers[0].status, "proposed")
+        self.assertEqual(len(result.run_record["request_sha256"]), 2)
+
+    def test_received_quote_without_quote_document_rejected(self):
+        by_doc = {"DOC-REQ": [fact("quote_status", "received", ref(REQ, "견적을 받을 예정임"))]}
+        result, _ = self.understand(by_doc, (REQ,))
+        self.assertNotIn("quote_status", {f.field for f in result.candidates})
+        self.assertTrue(any(r["reason"] == "견적서 문서 없이 received 주장" for r in result.rejected))
+
+    def test_cross_document_citation_rejected_in_per_document_mode(self):
+        by_doc = {"DOC-REQ": [fact("supplier_name", "가나다전자", ref(QUOTE, "가나다전자"))],
+                  "DOC-QT": []}
+        result, _ = self.understand(by_doc, (REQ, QUOTE))
+        self.assertTrue(any(r.get("document_id") == "DOC-REQ" for r in result.rejected))
 
 
 class EndpointTests(unittest.TestCase):
@@ -257,7 +308,7 @@ class EndpointTests(unittest.TestCase):
                                           frozenset({"llm.internal"})))
 
     def test_external_host_never_called(self):
-        cfg = EndpointConfig(base_url="https://example.com/v1")
+        cfg = EndpointConfig(base_url="https://example.com/v1", per_document=False)
         result, transport = run(base_payload(), config=cfg)
         self.assertEqual(transport.calls, [])
         self.assertEqual(result.component_status, "unavailable")
@@ -309,7 +360,8 @@ class LoopbackServerTests(unittest.TestCase):
 
     def understand(self, mode):
         _Handler.mode = mode
-        du = DocumentUnderstanding(EndpointConfig(base_url=self.url, timeout_seconds=5),
+        du = DocumentUnderstanding(EndpointConfig(base_url=self.url, timeout_seconds=5,
+                                                  per_document=False),
                                    transport=http_transport)
         return du.understand([REQ])
 
