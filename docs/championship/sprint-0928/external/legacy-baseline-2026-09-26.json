@@ -1,0 +1,155 @@
+{
+  "bundles": 49,
+  "excluded": [
+    "XT-57"
+  ],
+  "per_field": {
+    "item_name": {
+      "legacy_recall": {
+        "num": 0,
+        "den": 48,
+        "value": 0.0,
+        "wilson95": [
+          0.0,
+          0.0741
+        ]
+      },
+      "legacy_recall_vat_adjusted": {
+        "num": 0,
+        "den": 48,
+        "value": 0.0,
+        "wilson95": [
+          0.0,
+          0.0741
+        ]
+      },
+      "legacy_precision": {
+        "num": 0,
+        "den": 49,
+        "value": 0.0,
+        "wilson95": [
+          0.0,
+          0.0727
+        ]
+      }
+    },
+    "estimated_price_krw": {
+      "legacy_recall": {
+        "num": 15,
+        "den": 43,
+        "value": 0.3488,
+        "wilson95": [
+          0.2242,
+          0.4983
+        ]
+      },
+      "legacy_recall_vat_adjusted": {
+        "num": 38,
+        "den": 43,
+        "value": 0.8837,
+        "wilson95": [
+          0.7552,
+          0.9493
+        ]
+      },
+      "legacy_precision": {
+        "num": 15,
+        "den": 39,
+        "value": 0.3846,
+        "wilson95": [
+          0.2489,
+          0.541
+        ]
+      }
+    },
+    "sole_source_basis": {
+      "legacy_recall": {
+        "num": 28,
+        "den": 43,
+        "value": 0.6512,
+        "wilson95": [
+          0.5017,
+          0.7758
+        ]
+      },
+      "legacy_recall_vat_adjusted": {
+        "num": 28,
+        "den": 43,
+        "value": 0.6512,
+        "wilson95": [
+          0.5017,
+          0.7758
+        ]
+      },
+      "legacy_precision": {
+        "num": 28,
+        "den": 28,
+        "value": 1.0,
+        "wilson95": [
+          0.8794,
+          1.0
+        ]
+      }
+    },
+    "quote_count": {
+      "legacy_recall": {
+        "num": 10,
+        "den": 24,
+        "value": 0.4167,
+        "wilson95": [
+          0.2447,
+          0.6117
+        ]
+      },
+      "legacy_recall_vat_adjusted": {
+        "num": 10,
+        "den": 24,
+        "value": 0.4167,
+        "wilson95": [
+          0.2447,
+          0.6117
+        ]
+      },
+      "legacy_precision": {
+        "num": 10,
+        "den": 16,
+        "value": 0.625,
+        "wilson95": [
+          0.3864,
+          0.8152
+        ]
+      }
+    }
+  },
+  "legacy_unsupported": [
+    "supplier_name",
+    "tax_status",
+    "total_amount_krw",
+    "unit_price_krw",
+    "quantity",
+    "conflict_detection",
+    "missing_questions",
+    "evidence_presence"
+  ],
+  "overall": {
+    "legacy_recall": {
+      "num": 53,
+      "den": 158,
+      "value": 0.3354,
+      "wilson95": [
+        0.2665,
+        0.4122
+      ]
+    },
+    "legacy_recall_vat_adjusted": {
+      "num": 76,
+      "den": 158,
+      "value": 0.481,
+      "wilson95": [
+        0.4045,
+        0.5584
+      ]
+    }
+  },
+  "note": "LLM 재현율은 같은 정답(요청서 기준) 중 LLM 결과에서 놓치지 않은 비율. LLM 정밀도는 필드 전체 평가(eval_understanding)를 따른다."
+}
