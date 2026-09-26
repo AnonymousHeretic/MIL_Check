@@ -90,9 +90,12 @@ def main() -> int:
     ap.add_argument("--mode", choices=["gold-echo", "live"], required=True)
     ap.add_argument("--data", default=str(ROOT / "eval/understanding_dev.jsonl"))
     ap.add_argument("--output", required=True)
+    ap.add_argument("--exclude", default="", help="쉼표로 구분한 제외 bundle_id(사전 등록된 것만)")
     args = ap.parse_args()
 
-    bundles = load(Path(args.data))
+    paths = [Path(x) for x in args.data.split(",")]
+    excluded = {x.strip() for x in args.exclude.split(",") if x.strip()}
+    bundles = [b for p in paths for b in load(p) if b["bundle_id"] not in excluded]
     config = EndpointConfig.from_env()
     rows, latencies = [], []
     for b in bundles:
@@ -114,7 +117,7 @@ def main() -> int:
     except OSError:
         commit = None
     report = {
-        "mode": args.mode, "dataset": Path(args.data).name, "split": "dev",
+        "mode": args.mode, "dataset": [p.name for p in paths], "excluded": sorted(excluded), "split": sorted({b.get("split", "dev") for b in bundles}),
         "n_bundles": len(rows), "code_commit": commit, "model": config.model if args.mode == "live" else None,
         "per_document": config.per_document,
         "python": platform.python_version(), "machine": platform.machine(),

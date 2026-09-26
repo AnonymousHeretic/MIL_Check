@@ -1,0 +1,62 @@
+{
+  "frozen_files": [
+    {
+      "file": "XT_11-20.jsonl",
+      "bundles": 10,
+      "sha256": "f2ea86f2c5740d0b89b99eca44da0b9aad0cfb67dc08b8efb0f7aebb4581a75e",
+      "duplicate_ids": 0,
+      "errors": {}
+    },
+    {
+      "file": "XT_21-30.jsonl",
+      "bundles": 10,
+      "sha256": "bd10a431e248a1eeda345a1e0e921226c83632d223edd3b42d2c86204f592f74",
+      "duplicate_ids": 0,
+      "errors": {}
+    },
+    {
+      "file": "XT_31-40.jsonl",
+      "bundles": 10,
+      "sha256": "6cd12aaa771bb6f1d0ed0f85391f95a0b7c4af71a50d542c2c60332e7283fb49",
+      "duplicate_ids": 0,
+      "errors": {}
+    },
+    {
+      "file": "XT_41-50.jsonl",
+      "bundles": 10,
+      "sha256": "290b5e3ebcae46206c6133fc564f864dbd973477f10dd4b131c49cab574faaa2",
+      "duplicate_ids": 0,
+      "errors": {}
+    },
+    {
+      "file": "XT_51-60.jsonl",
+      "bundles": 10,
+      "sha256": "5f4c282b236444463cb74988a3c9557919b5f1ab7a25a7c4d63897e4daf67975",
+      "duplicate_ids": 0,
+      "errors": {
+        "conflict_fields_mismatch": 1
+      }
+    }
+  ],
+  "frozen_at": "2026-09-26",
+  "status": "frozen_before_any_model_run",
+  "author": "ChatGPT 임시 채팅(Unpersonalized), 웹 검색 금지 지시, 사전 확인 질문에서 MIL-Check 모름",
+  "developer_viewed_content": false,
+  "code_version_at_freeze": "understanding-0.3.1",
+  "aggregate": {
+    "bundles": 50,
+    "documents": 139,
+    "gold_facts": 692,
+    "conflict_bundles": 19,
+    "missing_bundles": 13
+  },
+  "excluded_by_prereg_rule": {
+    "XT-57": "conflict_fields가 정답 값 구성과 불일치(형식 검사 규칙에 따라 자동 제외, 내용 미열람)"
+  },
+  "protocol": [
+    "모델·프롬프트·코드(0.3.1)를 고정하고 1회 측정. 문서별 모드(PER_DOCUMENT=1)를 주 지표, 묶음 전체 모드를 보조로 보고",
+    "결과를 보고 코드·프롬프트를 고치면 이 세트는 개발 자료로 강등",
+    "지표마다 분자/분모와 Wilson 95% 신뢰구간을 함께 보고",
+    "불일치 사례는 사용자가 라벨 오류 여부를 확인하되, 점수는 원래 라벨 기준 값과 라벨 수정 후 값을 모두 공개"
+  ]
+}
