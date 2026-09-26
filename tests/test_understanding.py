@@ -334,6 +334,20 @@ class SourcePolicyTests(unittest.TestCase):
         result, _ = run(ok, docs=(doc,))
         self.assertEqual([f.value for f in result.candidates if f.field == "quote_status"], ["none"])
 
+    def test_quantity_digits_not_merged_across_spaces(self):
+        doc = Document("DOC-Q9", 1, doc_type="quote", text="견적서\n항법자료 변환기 NVX-8  1식\n합계 1,000원")
+        payload = {"schema_version": SCHEMA_VERSION,
+                   "facts": [fact("quantity", 1, ref(doc, "항법자료 변환기 NVX-8  1식"))]}
+        result, _ = run(payload, docs=(doc,))
+        self.assertEqual([f.value for f in result.candidates if f.field == "quantity"], [1])
+
+    def test_sole_source_basis_from_supplier_confirmation(self):
+        payload = {"schema_version": SCHEMA_VERSION, "facts": [
+            fact("sole_source_basis", "single_supplier", ref(SUPPLIER, "국내 공급업체임을 확인합니다"))]}
+        result, _ = run(payload, docs=(SUPPLIER,))
+        self.assertEqual([f.value for f in result.candidates if f.field == "sole_source_basis"],
+                         ["single_supplier"])
+
     def test_contract_category_not_extracted(self):
         payload = base_payload()
         payload["facts"].append(fact("contract_category", "goods", ref(REQ, "구매요구서")))

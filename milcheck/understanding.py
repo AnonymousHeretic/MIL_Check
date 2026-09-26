@@ -28,7 +28,7 @@ from typing import Any, Callable
 from .extract import parse_amount
 
 SCHEMA_VERSION = "llm-contract-v1"
-EXTRACTOR_VERSION = "understanding-0.3.0"
+EXTRACTOR_VERSION = "understanding-0.3.1"
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_DOCUMENT_CHARS = 60_000
 
@@ -62,7 +62,7 @@ FIELD_SPECS: dict[str, dict[str, Any]] = {
 # 필드별로 값이 나올 수 있는 문서 유형. 여기 없는 필드는 모든 문서 허용.
 FIELD_SOURCES: dict[str, set[str]] = {
     "estimated_price_krw": {"request"},
-    "sole_source_basis": {"request", "compatibility_statement"},
+    "sole_source_basis": {"request", "compatibility_statement", "supplier_confirmation"},
     "quote_status": {"request", "quote"},
     "total_amount_krw": {"quote"},
     "unit_price_krw": {"quote"},
@@ -404,7 +404,8 @@ def _value_supported_by_quote(field_name: str, value: Any, refs: list[SourceRef]
         if kind == "int_krw" and (parse_amount(compact) == value
                                   or value in parse_korean_amount(compact)):
             return True
-        digits = [int(d.replace(",", "")) for d in re.findall(r"\d[\d,]*", compact)]
+        # 공백을 지운 문자열에서 숫자를 찾으면 'NVX-8  1식'이 '81'로 붙는다 → 원문 기준으로 찾는다.
+        digits = [int(d.replace(",", "")) for d in re.findall(r"\d[\d,]*", ref.quote)]
         if value in digits:
             return True
     return False
