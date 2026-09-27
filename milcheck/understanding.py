@@ -220,6 +220,9 @@ class EndpointConfig:
     extra_body: dict[str, Any] = field(default_factory=dict)
     # True: 문서마다 따로 추출한 뒤 충돌은 코드가 판정(모델이 한 값만 고르는 문제 회피)
     per_document: bool = True
+    # True: 서버에 JSON 스키마를 넘겨 정해진 구조 밖의 출력을 생성 단계에서 막는다
+    # (vLLM response_format=json_schema, llama.cpp도 같은 형식 지원). 검수 기준은 바뀌지 않는다.
+    structured: bool = False
 
     @classmethod
     def from_env(cls) -> "EndpointConfig":
@@ -233,6 +236,7 @@ class EndpointConfig:
             max_tokens=int(os.environ.get("MILCHECK_LLM_MAX_TOKENS", cls.max_tokens)),
             extra_body=json.loads(os.environ.get("MILCHECK_LLM_EXTRA_BODY", "{}") or "{}"),
             per_document=os.environ.get("MILCHECK_LLM_PER_DOCUMENT", "1") != "0",
+            structured=os.environ.get("MILCHECK_LLM_STRUCTURED", "0") == "1",
         )
 
 
@@ -274,6 +278,54 @@ SYSTEM_PROMPT = (
     "\"evidence_claims\": [{\"requirement_id\", \"content_support\": supported|unsupported|unknown, \"source_refs\"}], "
     "\"questions\": [{\"affected_fields\", \"reason\": missing|conflict|unsupported, \"text\", \"source_refs\"}]}"
 )
+
+
+def _ref_schema() -> dict[str, Any]:
+    return {"type": "object", "additionalProperties": False,
+            "required": ["document_id", "revision", "text_start", "text_end", "quote"],
+            "properties": {"document_id": {"type": "string"}, "revision": {"type": "integer"},
+                           "text_start": {"type": "integer"}, "text_end": {"type": "integer"},
+                           "quote": {"type": "string"}}}
+
+
+def response_schema() -> dict[str, Any]:
+    """llm-contract-v1 응답 구조를 JSON 스키마로 표현(생성 단계 구조 강제용).
+
+    구조만 강제한다. 인용 일치·값 확인·출처 문서 제한 등 의미 검증은 validate_response가 그대로 한다.
+    """
+    value_types = {"str": {"type": "string"}, "int_krw": {"type": "integer"},
+                   "int": {"type": "integer"}, "date": {"type": "string"}}
+    ref_list = {"type": "array", "items": _ref_schema()}
+    fact_variants = []
+    for name, spec in FIELD_SPECS.items():
+        value = ({"type": "string", "enum": list(spec["values"])} if spec["type"] == "enum"
+                 else value_types[spec["type"]])
+        fact_variants.append({"type": "object", "additionalProperties": False,
+                              "required": ["field", "value", "source_refs"],
+                              "properties": {"field": {"type": "string", "enum": [name]},
+                                             "value": value, "source_refs": ref_list}})
+    return {
+        "type": "object", "additionalProperties": False,
+        "required": ["schema_version", "facts", "evidence_claims", "questions"],
+        "properties": {
+            "schema_version": {"type": "string", "enum": [SCHEMA_VERSION]},
+            "facts": {"type": "array", "items": {"anyOf": fact_variants}},
+            "evidence_claims": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["requirement_id", "content_support", "source_refs"],
+                "properties": {
+                    "requirement_id": {"type": "string", "enum": list(EVIDENCE_REQUIREMENTS)},
+                    "content_support": {"type": "string", "enum": ["supported", "unsupported", "unknown"]},
+                    "source_refs": ref_list}}},
+            "questions": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["affected_fields", "reason", "text", "source_refs"],
+                "properties": {
+                    "affected_fields": {"type": "array", "items": {"type": "string", "enum": list(FIELD_SPECS)}},
+                    "reason": {"type": "string", "enum": ["missing", "conflict", "unsupported"]},
+                    "text": {"type": "string"}, "source_refs": ref_list}}},
+        },
+    }
 
 
 def build_messages(documents: list[Document]) -> list[dict[str, str]]:
@@ -613,6 +665,7 @@ class DocumentUnderstanding:
             "schema_version": SCHEMA_VERSION,
             "extractor_version": EXTRACTOR_VERSION,
             "model": self.config.model,
+            "structured_output": self.config.structured,
             "endpoint_host": urllib.parse.urlsplit(self.config.base_url).hostname,
             "documents": [{"document_id": d.document_id, "revision": d.revision,
                            "content_hash": d.content_hash} for d in documents],
@@ -634,7 +687,11 @@ class DocumentUnderstanding:
         body = {k: v for k, v in self.config.extra_body.items() if k not in protected}
         body.update({"model": self.config.model, "temperature": 0,
                      "max_tokens": self.config.max_tokens,
-                     "response_format": {"type": "json_object"},
+                     "response_format": (
+                         {"type": "json_schema", "json_schema": {
+                             "name": "milcheck_llm_contract_v1", "strict": True,
+                             "schema": response_schema()}}
+                         if self.config.structured else {"type": "json_object"}),
                      "messages": build_messages(documents)})
         return body
 
