@@ -1,0 +1,480 @@
+{
+  "evaluator_version": "understanding-eval-0.2.0",
+  "evaluator_sha256": "472780a5ff01b96e1e86d167bc13f12493f0482391969f8db4ee8d5e1a81aa4c",
+  "decision_input_profile": {
+    "fields": [
+      "item_name",
+      "estimated_price_krw",
+      "tax_status",
+      "sole_source_basis",
+      "quote_count"
+    ],
+    "stage": "validated_candidates_before_human_confirmation",
+    "source_unit": "field_value_document_id",
+    "caveat": "판정 입력 후보의 추출 정확도. 담당자 확정값·금액과 세금의 대응 관계·법적 판정 정확도는 별도 검증 대상."
+  },
+  "dataset_sha256": [
+    {
+      "name": "understanding_dev.jsonl",
+      "sha256": "7677dc6a80744c37dbccf6e511b2a273426d78db2a3eb0bcf49c184782b0bad7"
+    }
+  ],
+  "mode": "gold-echo",
+  "dataset": [
+    "understanding_dev.jsonl"
+  ],
+  "excluded": [],
+  "split": [
+    "dev"
+  ],
+  "n_bundles": 10,
+  "code_commit": "fc99418aa915e16d5954523333fd16a200f9736b",
+  "model": null,
+  "per_document": true,
+  "structured": false,
+  "python": "3.12.14",
+  "machine": "x86_64",
+  "metrics": {
+    "fact_precision": {
+      "num": 64,
+      "den": 64,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.9434,
+        1
+      ]
+    },
+    "fact_recall": {
+      "num": 64,
+      "den": 64,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.9434,
+        1
+      ]
+    },
+    "decision_input_precision": {
+      "num": 39,
+      "den": 39,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.9103,
+        1
+      ]
+    },
+    "decision_input_recall": {
+      "num": 39,
+      "den": 39,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.9103,
+        1
+      ]
+    },
+    "conflict_recall": {
+      "num": 3,
+      "den": 3,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.4385,
+        1
+      ]
+    },
+    "conflict_precision": {
+      "num": 3,
+      "den": 3,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.4385,
+        1
+      ]
+    },
+    "missing_question_recall": {
+      "num": 3,
+      "den": 3,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.4385,
+        1
+      ]
+    },
+    "fabricated_required_fields": 0,
+    "evidence_presence_accuracy": {
+      "num": 10,
+      "den": 10,
+      "value": 1.0,
+      "wilson_95_ci": [
+        0.7225,
+        1.0
+      ]
+    },
+    "unavailable_bundles": 0,
+    "rejected_items": 0,
+    "latency_s_p50": 0.0002,
+    "latency_s_max": 0.0007
+  },
+  "caveat": "gold-echo는 채점기·경계 점검이며 모델 성능이 아니다.",
+  "input_field_metrics": {
+    "decision_input": {
+      "tp": 39,
+      "pred": 39,
+      "gold": 39,
+      "fp": 0,
+      "fn": 0,
+      "precision": {
+        "num": 39,
+        "den": 39,
+        "value": 1.0,
+        "wilson_95_ci": [
+          0.9103,
+          1
+        ]
+      },
+      "recall": {
+        "num": 39,
+        "den": 39,
+        "value": 1.0,
+        "wilson_95_ci": [
+          0.9103,
+          1
+        ]
+      }
+    },
+    "decision_input_source": {
+      "tp": 39,
+      "pred": 39,
+      "gold": 39,
+      "fp": 0,
+      "fn": 0,
+      "precision": {
+        "num": 39,
+        "den": 39,
+        "value": 1.0,
+        "wilson_95_ci": [
+          0.9103,
+          1
+        ]
+      },
+      "recall": {
+        "num": 39,
+        "den": 39,
+        "value": 1.0,
+        "wilson_95_ci": [
+          0.9103,
+          1
+        ]
+      }
+    },
+    "per_field": {
+      "delivery_deadline": {
+        "tp": 1,
+        "pred": 1,
+        "gold": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 1,
+          "den": 1,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.2065,
+            1
+          ]
+        },
+        "recall": {
+          "num": 1,
+          "den": 1,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.2065,
+            1
+          ]
+        }
+      },
+      "estimated_price_krw": {
+        "tp": 9,
+        "pred": 9,
+        "gold": 9,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 9,
+          "den": 9,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7009,
+            1
+          ]
+        },
+        "recall": {
+          "num": 9,
+          "den": 9,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7009,
+            1
+          ]
+        }
+      },
+      "existing_equipment": {
+        "tp": 1,
+        "pred": 1,
+        "gold": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 1,
+          "den": 1,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.2065,
+            1
+          ]
+        },
+        "recall": {
+          "num": 1,
+          "den": 1,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.2065,
+            1
+          ]
+        }
+      },
+      "item_name": {
+        "tp": 10,
+        "pred": 10,
+        "gold": 10,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 10,
+          "den": 10,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7225,
+            1.0
+          ]
+        },
+        "recall": {
+          "num": 10,
+          "den": 10,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7225,
+            1.0
+          ]
+        }
+      },
+      "quantity": {
+        "tp": 2,
+        "pred": 2,
+        "gold": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 2,
+          "den": 2,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.3424,
+            1
+          ]
+        },
+        "recall": {
+          "num": 2,
+          "den": 2,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.3424,
+            1
+          ]
+        }
+      },
+      "quote_count": {
+        "tp": 0,
+        "pred": 0,
+        "gold": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 0,
+          "den": 0,
+          "value": null,
+          "wilson_95_ci": null
+        },
+        "recall": {
+          "num": 0,
+          "den": 0,
+          "value": null,
+          "wilson_95_ci": null
+        }
+      },
+      "quote_status": {
+        "tp": 5,
+        "pred": 5,
+        "gold": 5,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 5,
+          "den": 5,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.5655,
+            1
+          ]
+        },
+        "recall": {
+          "num": 5,
+          "den": 5,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.5655,
+            1
+          ]
+        }
+      },
+      "sole_source_basis": {
+        "tp": 9,
+        "pred": 9,
+        "gold": 9,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 9,
+          "den": 9,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7009,
+            1
+          ]
+        },
+        "recall": {
+          "num": 9,
+          "den": 9,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7009,
+            1
+          ]
+        }
+      },
+      "supplier_name": {
+        "tp": 10,
+        "pred": 10,
+        "gold": 10,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 10,
+          "den": 10,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7225,
+            1.0
+          ]
+        },
+        "recall": {
+          "num": 10,
+          "den": 10,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7225,
+            1.0
+          ]
+        }
+      },
+      "tax_status": {
+        "tp": 11,
+        "pred": 11,
+        "gold": 11,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 11,
+          "den": 11,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7412,
+            1
+          ]
+        },
+        "recall": {
+          "num": 11,
+          "den": 11,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.7412,
+            1
+          ]
+        }
+      },
+      "total_amount_krw": {
+        "tp": 4,
+        "pred": 4,
+        "gold": 4,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 4,
+          "den": 4,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.5101,
+            1
+          ]
+        },
+        "recall": {
+          "num": 4,
+          "den": 4,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.5101,
+            1
+          ]
+        }
+      },
+      "unit_price_krw": {
+        "tp": 2,
+        "pred": 2,
+        "gold": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": {
+          "num": 2,
+          "den": 2,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.3424,
+            1
+          ]
+        },
+        "recall": {
+          "num": 2,
+          "den": 2,
+          "value": 1.0,
+          "wilson_95_ci": [
+            0.3424,
+            1
+          ]
+        }
+      }
+    },
+    "ambiguous_exclusions": {
+      "delivery_deadline": 0,
+      "estimated_price_krw": 0,
+      "existing_equipment": 0,
+      "item_name": 0,
+      "quantity": 0,
+      "quote_count": 0,
+      "quote_status": 0,
+      "sole_source_basis": 1,
+      "supplier_name": 0,
+      "tax_status": 0,
+      "total_amount_krw": 0,
+      "unit_price_krw": 0
+    }
+  },
+  "detail_policy": "aggregate_only"
+}
