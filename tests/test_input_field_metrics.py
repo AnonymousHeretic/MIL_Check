@@ -79,12 +79,71 @@ class InputFieldMetricsTests(unittest.TestCase):
                             "--mode", "gold-echo", "--summary-only", "--output", str(output)],
                            check=True, capture_output=True)
             r = json.loads(output.read_text())
+        self.assertEqual(r["evaluator_version"], "understanding-eval-0.3.0")
+        profiles = r["input_metric_profiles"]
+        self.assertEqual(profiles["core_decision_input"]["fields"],
+                         ["estimated_price_krw", "tax_status", "sole_source_basis"])
+        self.assertEqual(profiles["core_decision_input"]["role"], "primary")
+        self.assertEqual(len(profiles["auxiliary_decision_input_5"]["fields"]), 5)
+        self.assertEqual(profiles["auxiliary_decision_input_5"]["role"], "auxiliary")
+        for key in ("core_decision_input", "core_decision_input_source",
+                    "auxiliary_decision_input_5", "auxiliary_decision_input_5_source"):
+            self.assertEqual(r["metrics"][key + "_precision"]["value"], 1.0)
+            self.assertEqual(r["input_field_metrics"][key]["tp"],
+                             r["input_field_metrics"][key]["pred"])
         self.assertNotIn("bundles", r)
         self.assertNotIn("false_facts", json.dumps(r))
         self.assertEqual(r["metrics"]["decision_input_precision"]["value"], 1.0)
         self.assertEqual(r["input_field_metrics"]["decision_input_source"]["precision"]["value"], 1.0)
         self.assertEqual(len(r["dataset_sha256"][0]["sha256"]), 64)
         self.assertIn("structured", r)
+
+    def test_core_is_independent_of_item_and_quote_correctness(self):
+        gold = [("estimated_price_krw", 100, "R1"), ("tax_status", "vat_excluded", "R1"),
+                ("sole_source_basis", "compatibility", "R1"),
+                ("item_name", "A", "R1"), ("quote_count", 2, "R1")]
+        core = [candidate(f, v, d) for f, v, d in gold[:3]]
+        good = score(gold, core + [candidate(f, v, d) for f, v, d in gold[3:]])
+        bad = score(gold, core + [candidate("item_name", "X", "R1"),
+                                 candidate("quote_count", 3, "Q1")])
+        for key in ("core_decision_input", "core_decision_input_source"):
+            self.assertEqual(good[key], bad[key])
+            self.assertEqual(bad[key]["tp"], 3)
+        self.assertEqual(good["auxiliary_decision_input_5"]["tp"], 5)
+        self.assertEqual(bad["auxiliary_decision_input_5"]["tp"], 3)
+        self.assertEqual(bad["auxiliary_decision_input_5"]["fp"], 2)
+
+    def test_core_errors_sources_duplicates_exclusions_and_micro_counts(self):
+        a = score([("estimated_price_krw", 100, "R1"), ("tax_status", "vat_excluded", "R1"),
+                   ("sole_source_basis", "compatibility", "R1")],
+                  [candidate("estimated_price_krw", 110, "R1", "R1"),
+                   candidate("estimated_price_krw", 110, "R1"),
+                   candidate("tax_status", "vat_excluded", "Q1")])
+        self.assertEqual(a["core_decision_input"],
+                         {"tp": 1, "fp": 1, "fn": 2, "pred": 2, "gold": 3})
+        self.assertEqual(a["core_decision_input_source"]["tp"], 0)
+        self.assertEqual(a["core_decision_input_source"]["pred"], 2)
+        b = score([("estimated_price_krw", 100, "R1"),
+                   ("sole_source_basis", "compatibility", "R1")],
+                  [candidate("estimated_price_krw", 100),
+                   candidate("sole_source_basis", "single_supplier", "R1")],
+                  ["sole_source_basis"])
+        self.assertEqual(b["core_decision_input_source"]["fp"], 1)
+        m = aggregate_input_fields([{"input_fields": a}, {"input_fields": b}])
+        for key, tp, pred, gold in (("core_decision_input", 2, 3, 4),
+                                    ("core_decision_input_source", 0, 3, 4)):
+            self.assertEqual(m[key]["precision"], ratio(tp, pred))
+            self.assertEqual(m[key]["recall"], ratio(tp, gold))
+            self.assertEqual(m[key]["fp"], pred - tp)
+            self.assertEqual(m[key]["fn"], gold - tp)
+        self.assertEqual(m["ambiguous_exclusions"]["sole_source_basis"], 1)
+        self.assertEqual(m["per_field"]["estimated_price_krw"]["precision"], ratio(1, 2))
+        self.assertEqual(m["core_per_field_source"]["estimated_price_krw"]["recall"], ratio(0, 2))
+        empty = aggregate_input_fields([{"input_fields": score([], [])}])
+        self.assertEqual(empty["core_decision_input"]["precision"], ratio(0, 0))
+        for f in ("estimated_price_krw", "tax_status", "sole_source_basis"):
+            self.assertEqual(empty["per_field"][f]["recall"], ratio(0, 0))
+            self.assertEqual(empty["core_per_field_source"][f]["precision"], ratio(0, 0))
 
     def test_empty_and_duplicate_datasets_fail_before_inference(self):
         source = ROOT / "eval/understanding_dev.jsonl"

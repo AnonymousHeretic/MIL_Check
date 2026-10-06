@@ -29,9 +29,11 @@ from milcheck.understanding import (  # noqa: E402
     FIELD_SPECS, REQUIRED_FIELDS, SCHEMA_VERSION, Document, DocumentUnderstanding, EndpointConfig)
 
 
-EVALUATOR_VERSION = "understanding-eval-0.2.0"
+EVALUATOR_VERSION = "understanding-eval-0.3.0"
 # workflow.confirm -> RuleEngine에서 읽는 AI 후보 및 금액 사용을 허용하는 tax_status.
 # supplier_name은 결과서 맥락, contract_category/proposed_type/증빙은 담당자 입력이다.
+CORE_DECISION_INPUT_FIELDS = ("estimated_price_krw", "tax_status", "sole_source_basis")
+# 0.2.0 호환 키는 계속 5개 보조 범위를 가리킨다.
 DECISION_INPUT_FIELDS = ("item_name", "estimated_price_krw", "tax_status",
                          "sole_source_basis", "quote_count")
 
@@ -67,7 +69,21 @@ def score_input_fields(bundle: dict, result) -> dict:
     source_pred |= {(c.field, json.dumps(c.value, ensure_ascii=False), None)
                     for c in result.candidates if not c.source_refs
                     and c.field in DECISION_INPUT_FIELDS and c.field not in skip}
-    return {"per_field": per_field,
+    core_gold = {p for p in gold if p[0] in CORE_DECISION_INPUT_FIELDS}
+    core_pred = {p for p in pred if p[0] in CORE_DECISION_INPUT_FIELDS}
+    source_per_field = {
+        f: pair_counts({p for p in source_gold if p[0] == f},
+                       {p for p in source_pred if p[0] == f})
+        for f in CORE_DECISION_INPUT_FIELDS
+    }
+    return {"core_decision_input": pair_counts(core_gold, core_pred),
+            "core_decision_input_source": pair_counts(
+                {p for p in source_gold if p[0] in CORE_DECISION_INPUT_FIELDS},
+                {p for p in source_pred if p[0] in CORE_DECISION_INPUT_FIELDS}),
+            "core_per_field_source": source_per_field,
+            "auxiliary_decision_input_5": pair_counts(selected_gold, selected_pred),
+            "auxiliary_decision_input_5_source": pair_counts(source_gold, source_pred),
+            "per_field": per_field,
             "decision_input": pair_counts(selected_gold, selected_pred),
             "decision_input_source": pair_counts(source_gold, source_pred),
             "excluded_ambiguous_fields": sorted(skip)}
@@ -82,6 +98,12 @@ def aggregate_input_fields(rows: list[dict]) -> dict:
     fields = sorted({f for r in rows for f in r["input_fields"]["per_field"]})
     empty = dict.fromkeys(("tp", "pred", "gold", "fp", "fn"), 0)
     return {
+        **{key: summarize([r["input_fields"][key] for r in rows]) for key in (
+            "core_decision_input", "core_decision_input_source",
+            "auxiliary_decision_input_5", "auxiliary_decision_input_5_source")},
+        "core_per_field_source": {
+            f: summarize([r["input_fields"]["core_per_field_source"][f] for r in rows])
+            for f in CORE_DECISION_INPUT_FIELDS},
         "decision_input": summarize([r["input_fields"]["decision_input"] for r in rows]),
         "decision_input_source": summarize([r["input_fields"]["decision_input_source"] for r in rows]),
         "per_field": {f: summarize([r["input_fields"]["per_field"].get(f, empty) for r in rows])
@@ -200,7 +222,25 @@ def main() -> int:
     report = {
         "evaluator_version": EVALUATOR_VERSION,
         "evaluator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "input_metric_profiles": {
+            "core_decision_input": {
+                "role": "primary", "fields": list(CORE_DECISION_INPUT_FIELDS),
+                "introduced_in": EVALUATOR_VERSION, "precision_target": 0.98,
+            },
+            "auxiliary_decision_input_5": {
+                "role": "auxiliary", "fields": list(DECISION_INPUT_FIELDS),
+                "legacy_evaluator_version": "understanding-eval-0.2.0",
+                "legacy_aliases": ["decision_input", "decision_input_source",
+                                   "decision_input_precision", "decision_input_recall"],
+            },
+            "stage": "validated_candidates_before_human_confirmation",
+            "value_unit": "field_value", "source_unit": "field_value_document_id",
+            "aggregation": "micro_counts_summed_across_bundles",
+            "zero_denominator": "null_value_and_ci",
+            "caveat": "담당자 확인 전 AI 추출 후보 정확도. 담당자 확인 후 정확도나 법적 판정 정확도가 아니다.",
+        },
         "decision_input_profile": {
+            "role": "legacy_auxiliary_5_fields",
             "fields": list(DECISION_INPUT_FIELDS),
             "stage": "validated_candidates_before_human_confirmation",
             "source_unit": "field_value_document_id",
@@ -216,6 +256,10 @@ def main() -> int:
         "metrics": {
             "fact_precision": ratio(s("fact_tp"), s("fact_pred")),
             "fact_recall": ratio(s("fact_tp"), s("fact_gold")),
+            **{f"{scope}_{measure}": input_metrics[scope][measure]
+               for scope in ("core_decision_input", "core_decision_input_source",
+                             "auxiliary_decision_input_5", "auxiliary_decision_input_5_source")
+               for measure in ("precision", "recall")},
             "decision_input_precision": input_metrics["decision_input"]["precision"],
             "decision_input_recall": input_metrics["decision_input"]["recall"],
             "conflict_recall": ratio(s("conflict_tp"), s("conflict_gold")),
