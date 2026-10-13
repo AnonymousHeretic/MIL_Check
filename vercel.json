@@ -1,19 +1,26 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "functions": {
     "api/index.py": {
       "maxDuration": 30,
-      "excludeFiles": "{tests/**,docs/**,runs/**,scripts/**,examples/**,artifacts/**,training/**,eval/external/**,eval/cases.jsonl,eval/real_cases.jsonl,eval/audit_cases.jsonl,eval/extraction_*.jsonl,eval/retrieval_cases.jsonl,**/*.csv,**/__pycache__/**,.github/**,demo_app.py,web_app.py,analyze_audit.py,build_evalsets.py,build_index.py,evaluate_comprehensive.py,evaluate_robustness.py,train_models.py,requirements-*.txt,README.md}"
+      "excludeFiles": "{tests/**,docs/**,runs/**,scripts/**,examples/**,artifacts/**,training/**,eval/external/**,eval/*_cases.jsonl,eval/extraction_*.jsonl,**/*.csv,**/__pycache__/**,.github/**,*.md}"
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
       ]
     }
   ]
