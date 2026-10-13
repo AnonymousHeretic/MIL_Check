@@ -1,8 +1,10 @@
 """텍스트 PDF·직접 입력 어댑터. 원문은 메모리에만 유지하며 OCR은 수행하지 않는다."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from .understanding import DOC_TYPES, MAX_DOCUMENT_CHARS, Document, SourceRef
 
@@ -75,8 +77,9 @@ def from_text(text: str, *, document_id: str, doc_type: str, revision: int,
     return InputDocument(_document(text, document_id, doc_type, revision, origin, "text/plain"))
 
 
-def from_pdf(path: str | Path, *, document_id: str, doc_type: str, revision: int,
+def from_pdf(path: str | Path | BinaryIO, *, document_id: str, doc_type: str, revision: int,
              origin: str = "internal") -> InputDocument:
+    """path는 파일 경로 또는 읽기 가능한 바이너리 스트림(업로드를 디스크에 쓰지 않을 때)."""
     _metadata(document_id, doc_type, revision, origin)
     try:
         from pypdf import PdfReader
@@ -85,7 +88,8 @@ def from_pdf(path: str | Path, *, document_id: str, doc_type: str, revision: int
     chunks, ranges, offset = [], [], 0
     try:
         # strict=True로 손상 파일을 조용히 복구하지 않는다. 파서 로그에 원문을 쓰지 않는다.
-        with Path(path).open("rb") as stream:
+        opened = nullcontext(path) if hasattr(path, "read") else Path(path).open("rb")
+        with opened as stream:
             reader = PdfReader(stream, strict=True)
             if reader.is_encrypted:
                 raise DocumentInputError("encrypted_pdf", "암호화된 PDF는 지원하지 않습니다")

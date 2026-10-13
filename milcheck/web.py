@@ -1,78 +1,123 @@
-"""웹 MVP: 문서 입력 → 문서 이해(후보) → 담당자 확인 → 규칙 판정 → 판정·근거 → 사전검토 결과서.
+"""웹 MVP: 문서 입력 → 추출 항목 확인(담당자) → 규칙 판정·근거 → 사전검토 결과서.
 
 HTTP 서버와 분리된 순수 함수 `handle()`만 둔다. 로컬 서버(web_app.py)와 Vercel 어댑터
 (api/index.py)는 모두 이 함수를 호출하는 얇은 껍데기다. 판정 로직은 새로 만들지 않고
-milcheck.workflow / milcheck.understanding / MilCheckAgent를 그대로 쓴다.
+milcheck.workflow / milcheck.understanding / milcheck.document_input / MilCheckAgent를 그대로 쓴다.
 
-실행 모드
-  gold-echo  합성 묶음의 정답을 모델 응답처럼 되돌린다(흐름 시연용, 모델 성능 아님).
-  manual     모델을 호출하지 않는다. 담당자가 원문을 보며 값을 직접 입력한다.
-  live       승인된 로컬(루프백) OpenAI 호환 서버 호출. 로컬 실행에서만 허용.
+입력: 텍스트 PDF 업로드(document_input.from_pdf, 디스크에 쓰지 않음) 또는 내용 직접 입력.
+
+추출 모드
+  live    승인된 로컬(루프백) OpenAI 호환 서버로 후보 추출. 로컬 실행 기본값.
+          실패하면 '자동 추출 실패' 화면에서 수동 입력으로 전환할 수 있다.
+  manual  모델을 호출하지 않는다. 담당자가 원문을 보며 값을 직접 입력한다.
 
 배포 구분: 환경변수 MILCHECK_DEPLOY=vercel 일 때만 공개 시연 미러 제한을 적용한다
-  (live 거부, 확인자 이름 고정, 실행 기록은 임시 경로). 그 외에는 로컬 동작 그대로다.
+  (manual만 허용·live 거부, 확인자 이름 고정, 실행 기록은 임시 경로, 고정 배너). 그 외에는 로컬 동작.
 
-원문 보관 금지: 입력 문서 원문은 요청 처리 중 메모리에만 있고, 다음 화면으로는 브라우저
-  양식(hidden)으로만 되돌아간다. 실행 기록 DB에는 workflow.run_case가 남기는 해시·확인값만 저장된다.
+원문 보관 금지: 문서 원문은 요청 처리 중 메모리에만 있고, 다음 화면으로는 브라우저 양식(hidden)으로만
+  되돌아간다. 실행 기록 DB에는 workflow.run_case가 남기는 해시·확인값만 저장된다.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import html
+import io
 import json
 import os
+import re
+import secrets
 import tempfile
 import threading
-from dataclasses import dataclass, field
+import time
+from dataclasses import asdict, dataclass, field
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
 from .agent import DECISION_KO
-from .understanding import (FIELD_SPECS, MAX_DOCUMENT_CHARS, SCHEMA_VERSION, Document,
-                            DocumentUnderstanding, EndpointConfig, UnderstandingError)
-from .workflow import (EVIDENCE_KO, FIELD_KO, PRESENCE_KO, REQ_KO, SEVERITY_KO, SOURCE_KO,
-                       Confirmation, ConfirmationError, lookup, open_store, render_markdown,
-                       review_sheet, run_case)
+from .document_input import DocumentInputError, from_pdf, from_text
+from .understanding import (EVIDENCE_REQUIREMENTS, MAX_DOCUMENT_CHARS, CandidateFact, Document,
+                            DocumentUnderstanding, EndpointConfig, EvidenceAssessment,
+                            ReviewQuestion, SourceRef, UnderstandingError, UnderstandingResult)
+from .workflow import (EVIDENCE_HINTS, EVIDENCE_KO, Confirmation, ConfirmationError, lookup,
+                       open_store, run_case)
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "web_static"
-BUNDLES_PATH = ROOT / "eval" / "understanding_dev.jsonl"
-MAX_BODY_BYTES = 512 * 1024
+MAX_BODY_BYTES = 4 * 1024 * 1024       # Vercel 요청 본문 한도(4.5MB) 안쪽
+MAX_FILES = 6
 
 BANNER = "공개 시연용 미러 · 합성 데이터만 사용 · 외부 LLM 미사용 · 실제 운용은 폐쇄망 로컬 실행"
-GOLD_BADGE = "정답 대입 모드 — 모델 성능 아님"
 INPUT_WARNING = "실제 계약 문서·개인정보·군 내부 자료 입력 금지"
 VOLATILE_NOTICE = "시연용 미러에서는 기록이 서버 재시작 시 사라집니다"
 SAME_DB_LIMIT = ("한계: 실행 기록과 그 확인값(SHA-256)이 같은 DB에 저장됩니다. "
                  "기록 한 건만 바뀐 경우는 탐지하지만, DB 전체를 다시 쓰는 변조는 탐지하지 못합니다.")
+FINAL_NOTICE = "이 결과는 담당자가 확정한 입력에 대한 규칙 검사입니다. 계약 체결 여부의 최종 결정은 담당자에게 있습니다."
 DEMO_REVIEWER = "시연 담당자"
 ROBOTS = "noindex, nofollow"
 
-MODE_KO = {"gold-echo": "정답 대입(합성 묶음)", "manual": "수동 입력(모델 미사용)",
-           "live": "로컬 모델 호출(폐쇄망)"}
-DOC_SLOTS = [("R1", "request", "구매요구서"), ("Q1", "quote", "견적서"),
-             ("S1", "supplier_confirmation", "공급확인서"),
-             ("C1", "compatibility_statement", "호환성 사유서")]
-CATEGORY_KO = {"goods": "물품", "service": "용역", "lease": "임차"}
-PROPOSED_KO = {"sole_source": "수의계약(단독·호환 사유)", "small_amount": "소액 수의계약",
-               "urgent_security": "긴급·보안 수의계약", "post_tender": "유찰 후 수의계약",
-               "designated_product": "지정 물품", "lease": "임차"}
-ENUM_KO = {
-    "tax_status": {"vat_excluded": "부가세 별도(제외)", "vat_included": "부가세 포함",
-                   "unknown": "미상"},
-    "sole_source_basis": {"compatibility": "기존 장비 호환", "patented_no_substitute": "특허·대체품 없음",
-                          "original_supplier_direct_service": "제조·공급자 직접 설치·정비",
-                          "single_supplier": "단일 업체만 공급"},
-    "quote_status": {"received": "견적 접수", "planned": "견적 예정", "none": "견적 없음"},
+DOC_TYPE_KO = {"request": "구매요구서", "quote": "견적서", "supplier_confirmation": "공급자 확인서",
+               "compatibility_statement": "호환성 사유서", "other": "기타 문서"}
+REVIEW_TYPES = {  # 검토 유형(담당자 선택) → (계약 대상, 검토 방식)
+    "goods_sole": ("물품 구매 · 수의계약 (호환성 · 단독공급 사유)", "goods", "sole_source"),
+    "goods_small": ("물품 구매 · 소액 수의계약", "goods", "small_amount"),
+    "goods_urgent": ("물품 구매 · 긴급·보안 수의계약", "goods", "urgent_security"),
+    "service_sole": ("용역 · 수의계약 (특정 기술·자격 사유)", "service", "sole_source"),
 }
-# 담당자가 화면에서 직접 고르는 추가 사실(규칙 엔진이 읽는 키). 문서 이해 후보가 아니다.
-EXTRA_BOOL = {"alternatives_exist": "대체 가능한 다른 제품·업체가 있음",
-              "split_contract_risk": "동일 사업을 나눠 발주했을 가능성 있음",
-              "self_created_urgency": "긴급성이 기관 내부 사정(예산소진·행정지연)으로 생김"}
-EXTRA_SELECT = {
-    "small_amount_basis": ("소액수의 기준", {"general": "일반", "special_knowledge": "특수 지식·기술",
-                                         "youth_startup": "청년창업기업", "supported_enterprise": "지원 대상 기업"}),
-    "urgent_security_basis": ("긴급·보안 구분", {"urgent": "긴급", "security": "보안"}),
+# 추출 항목 확인 표: (필드, 표시 이름, 용도)
+FIELD_ROWS = [("item_name", "품명", "판정 입력"),
+              ("sole_source_basis", "수의계약 근거", "판정 입력 · 핵심"),
+              ("estimated_price_krw", "추정가격", "판정 입력 · 핵심"),
+              ("tax_status", "부가세 여부", "판정 입력 · 핵심"),
+              ("total_amount_krw", "견적 합계", "참고"),
+              ("supplier_name", "업체명", "참고"),
+              ("quote_count", "견적 수", "판정 입력"),
+              ("existing_equipment", "기존 장비", "참고")]
+FIELD_LABEL = {f: label for f, label, _ in FIELD_ROWS}
+INT_FIELDS = {"estimated_price_krw", "total_amount_krw", "quote_count"}
+ENUM_KO = {
+    "tax_status": {"vat_excluded": "부가세 별도(제외)", "vat_included": "부가세 포함"},
+    "sole_source_basis": {"compatibility": "호환성", "patented_no_substitute": "특허·대체품 없음",
+                          "original_supplier_direct_service": "제조·공급자 직접 설치·정비",
+                          "single_supplier": "단일 업체만 공급",
+                          "specific_technical_service": "특정 기술·자격 용역"},
+}
+EXTRA_EVIDENCE_KO = {
+    "unforeseeable_event_record": "예측 불가 사건 기록", "immediate_deadline_record": "즉시 이행 기한 기록",
+    "competition_time_infeasible": "경쟁 절차 시간 부족 근거", "security_basis_record": "보안 근거 기록",
+    "scope_limited_to_security_need": "보안 필요 범위 한정 확인",
+    "supplier_security_safeguards": "업체 보안 조치 확인",
+}
+EXTRA_FACTS = {  # 검토 방식별 담당자 판단 사실(규칙 엔진 입력, 문서 이해 후보 아님)
+    "sole_source": [("alternatives_exist", "대체 가능한 제품·업체가 있음", {"yes": "예", "no": "아니오"})],
+    "small_amount": [("small_amount_basis", "소액수의 기준", {"general": "일반", "special_knowledge": "특수 지식·기술",
+                                                          "youth_startup": "청년창업기업",
+                                                          "supported_enterprise": "지원 대상 기업"}),
+                     ("split_contract_risk", "동일 사업 분할 발주 가능성", {"yes": "예", "no": "아니오"}),
+                     ("electronic_quotes_planned", "전자견적 계획", {"yes": "예", "no": "아니오"})],
+    "urgent_security": [("urgent_security_basis", "긴급·보안 구분", {"urgent": "긴급", "security": "보안"}),
+                        ("self_created_urgency", "긴급성이 내부 사정(예산소진·행정지연)으로 생김",
+                         {"yes": "예", "no": "아니오"})],
+}
+BOOL_EXTRAS = {"alternatives_exist", "split_contract_risk", "electronic_quotes_planned", "self_created_urgency"}
+REQ_KEYWORDS = {"EV-QUOTE": ("견적",), "EV-SUPPLIER": ("공급", "단독", "유일"), "EV-COMPAT": ("호환",)}
+SUPPORT_KO = {"supported": "내용 확인", "unsupported": "입증 부족", "conflicting": "상충", "unknown": "판단 불가"}
+FINDING_KO = {"SOLE-EVIDENCE": "사유 입증 서류", "SOLE-BASIS": "수의계약 세부 근거",
+              "SOLE-ALTERNATIVE": "대체품·경쟁 가능성", "INPUT-PRICE": "추정가격 입력",
+              "INPUT-INCOMPLETE": "필수 입력", "SCOPE-001": "판정 범위", "SCOPE-002": "판정 범위",
+              "ADDITIONAL-EVIDENCE": "유형별 필수 증빙"}
+SEVERITY_BADGE = {"pass": ("충족", "ok"), "warning": ("보완 필요", "warn"),
+                  "critical": ("부적합", "bad"), "info": ("참고", "muted")}
+DECISION_VIEW = {  # 배너 제목, 색, 한 줄 설명
+    "PASS_WITH_CONTROLS": ("요건 충족", "ok", "모든 규칙 검사를 통과했습니다. 통제 조건을 이행하고 담당자 최종 확인 후 진행하세요."),
+    "NEEDS_EVIDENCE": ("보완 필요", "warn", "필수 증빙 또는 절차가 부족합니다. 보완 요청서를 생성할 수 있습니다."),
+    "REJECT_GROUND": ("사유 부적합", "bad", "제안한 수의계약 사유와 충돌하는 사실이 있습니다. 경쟁 절차 또는 다른 근거를 검토하세요."),
+    "OUT_OF_SCOPE": ("판단 보류", "muted", "현재 규칙팩 판정 범위 밖입니다. 전문 검토가 필요합니다."),
+    "NEEDS_INPUT": ("판단 보류", "muted", "판정에 필요한 입력이 부족해 판정을 확정하지 않았습니다."),
 }
 
 
@@ -84,7 +129,7 @@ def is_deploy() -> bool:
 
 
 def allowed_modes() -> tuple[str, ...]:
-    return ("gold-echo", "manual") if is_deploy() else ("gold-echo", "manual", "live")
+    return ("manual",) if is_deploy() else ("live", "manual")
 
 
 def db_path() -> Path:
@@ -97,6 +142,7 @@ def db_path() -> Path:
 
 _agent = None
 _agent_lock = threading.Lock()
+_STATE_KEY = (os.environ.get("MILCHECK_WEB_SECRET") or secrets.token_hex(32)).encode()
 
 
 def get_agent():
@@ -114,43 +160,14 @@ def set_agent(agent) -> None:
     _agent = agent
 
 
-def load_bundles() -> dict[str, dict[str, Any]]:
-    out = {}
-    for line in BUNDLES_PATH.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            b = json.loads(line)
-            if b.get("origin") == "synthetic":
-                out[b["bundle_id"]] = b
-    return out
+def model_label(mode: str) -> str:
+    if mode == "manual":
+        return "LLM 미사용(수동 입력)"
+    return EndpointConfig.from_env().model
 
 
-# --------------------------------------------------------------------------
-# 문서 이해 전송 계층(모두 네트워크 미사용, live 제외)
-# --------------------------------------------------------------------------
-def gold_echo_transport(bundle: dict[str, Any]):
-    """scripts/eval_understanding.py의 gold-echo와 같은 동작. 정답을 모델 응답 형식으로 되돌린다."""
-    texts = {d["document_id"]: d["text"] for d in bundle["documents"]}
-
-    def transport(url, body, headers, timeout):
-        user = body["messages"][1]["content"]
-        present = {d for d in texts if f'"document_id": "{d}"' in user}
-        facts = []
-        for f in bundle["gold"]["facts"]:
-            if f["document_id"] not in present:
-                continue
-            start = texts[f["document_id"]].index(f["quote"])
-            facts.append({"field": f["field"], "value": f["value"], "source_refs": [{
-                "document_id": f["document_id"], "revision": 1, "text_start": start,
-                "text_end": start + len(f["quote"]), "quote": f["quote"]}]})
-        payload = {"schema_version": SCHEMA_VERSION, "facts": facts,
-                   "evidence_claims": [], "questions": []}
-        return json.dumps({"choices": [{"message": {
-            "content": json.dumps(payload, ensure_ascii=False)}}]}).encode()
-    return transport
-
-
-def manual_transport(url, body, headers, timeout):
-    raise UnderstandingError("수동 입력 모드(모델 미호출)")
+def rules_meta() -> dict[str, Any]:
+    return json.loads((ROOT / "data" / "rules.json").read_text(encoding="utf-8"))
 
 
 class RequestError(Exception):
@@ -159,62 +176,176 @@ class RequestError(Exception):
         self.status = status
 
 
+# --------------------------------------------------------------------------
+# 입력 해석
+# --------------------------------------------------------------------------
 @dataclass
-class Inputs:
-    mode: str
-    bundle_id: str | None
-    documents: list[Document]
-    pasted: dict[str, str] = field(default_factory=dict)  # 문서 ID → 원문(양식 왕복용)
+class DocInfo:
+    document_id: str
+    name: str
+    doc_type: str
+    text: str
+    pages: list[list[int]] = field(default_factory=list)  # [쪽, 시작, 끝]
+
+    def document(self) -> Document:
+        return Document(self.document_id, 1, self.text, doc_type=self.doc_type,
+                        origin="synthetic" if is_deploy() else "internal",
+                        media_type="application/pdf" if self.pages else "text/plain")
 
 
-def parse_inputs(form: dict[str, list[str]], bundles: dict[str, dict]) -> Inputs:
-    mode = _one(form, "mode") or "gold-echo"
-    if mode not in MODE_KO:
+def guess_doc_type(name: str) -> str:
+    for key, kind in (("견적", "quote"), ("호환", "compatibility_statement"), ("공급", "supplier_confirmation"),
+                      ("확인서", "supplier_confirmation"), ("요구", "request"), ("요청", "request")):
+        if key in name:
+            return kind
+    return "request"
+
+
+def parse_form(body: bytes, content_type: str) -> tuple[dict[str, list[str]], list[tuple[str, bytes]]]:
+    """urlencoded 또는 multipart 본문 → (필드, 업로드 파일[(이름, 바이트)])."""
+    if content_type.lower().startswith("multipart/form-data"):
+        msg = BytesParser(policy=policy.HTTP).parsebytes(
+            b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + body)
+        if not msg.is_multipart():
+            raise RequestError(400, "양식 형식 오류")
+        fields: dict[str, list[str]] = {}
+        files: list[tuple[str, bytes]] = []
+        for part in msg.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            data = part.get_payload(decode=True) or b""
+            filename = part.get_filename()
+            if filename is not None:
+                if data:
+                    files.append((Path(filename).name[:120], data))
+            elif name:
+                fields.setdefault(name, []).append(data.decode("utf-8", errors="replace"))
+        return fields, files
+    return parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True), []
+
+
+def _one(form: dict[str, list[str]], key: str) -> str | None:
+    v = form.get(key)
+    return v[0] if v else None
+
+
+def docs_from_upload(form, files) -> list[DocInfo]:
+    if len(files) > MAX_FILES:
+        raise RequestError(400, f"문서는 {MAX_FILES}건까지 올릴 수 있습니다")
+    docs: list[DocInfo] = []
+    for i, (name, data) in enumerate(files):
+        doc_type = _one(form, f"doctype_{i}") or guess_doc_type(name)
+        if doc_type not in DOC_TYPE_KO:
+            raise RequestError(400, "알 수 없는 문서 유형")
+        doc_id = f"D{i + 1}"
+        try:
+            if name.lower().endswith(".pdf") or data[:5] == b"%PDF-":
+                got = from_pdf(io.BytesIO(data), document_id=doc_id, doc_type=doc_type, revision=1,
+                               origin="synthetic" if is_deploy() else "internal")
+                pages = [[p.page, p.text_start, p.text_end] for p in got.pages]
+            elif name.lower().endswith(".txt"):
+                got = from_text(data.decode("utf-8", errors="replace"), document_id=doc_id,
+                                doc_type=doc_type, revision=1)
+                pages = []
+            else:
+                raise RequestError(400, f"{name}: 텍스트 PDF 또는 .txt만 지원합니다(스캔본 OCR·HWP 미지원)")
+        except DocumentInputError as exc:
+            raise RequestError(400, f"{name}: {exc}") from None
+        docs.append(DocInfo(doc_id, name, doc_type, got.document.text, pages))
+    text = (_one(form, "direct_text") or "").replace("\r\n", "\n")
+    if text.strip():
+        if len(text) > MAX_DOCUMENT_CHARS:
+            raise RequestError(400, "직접 입력 문자 제한 초과")
+        kind = "other" if any(d.doc_type == "request" for d in docs) else "request"
+        docs.append(DocInfo("T1", "직접 입력", kind, text))
+    if not docs:
+        raise RequestError(400, "문서를 올리거나 내용을 직접 입력하십시오")
+    return docs
+
+
+def encode_docs(docs: list[DocInfo]) -> str:
+    raw = json.dumps([asdict(d) for d in docs], ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def decode_docs(value: str | None) -> list[DocInfo]:
+    try:
+        items = json.loads(base64.b64decode(value or "", validate=True).decode("utf-8"))
+        docs = [DocInfo(str(d["document_id"]), str(d["name"])[:120], str(d["doc_type"]), str(d["text"]),
+                        [[int(x) for x in p][:3] for p in d.get("pages", [])]) for d in items]
+    except (ValueError, KeyError, TypeError):
+        raise RequestError(400, "문서 상태가 손상되었습니다. 처음부터 다시 진행하십시오") from None
+    if not docs or len(docs) > MAX_FILES + 1 or any(d.doc_type not in DOC_TYPE_KO for d in docs) \
+            or any(len(d.text) > MAX_DOCUMENT_CHARS for d in docs):
+        raise RequestError(400, "문서 상태가 올바르지 않습니다")
+    return docs
+
+
+def parse_review_type(form) -> str:
+    key = _one(form, "review_type") or "goods_sole"
+    if key not in REVIEW_TYPES:
+        raise RequestError(400, "알 수 없는 검토 유형")
+    return key
+
+
+def parse_mode(form) -> str:
+    mode = _one(form, "mode") or allowed_modes()[0]
+    if mode not in {"live", "manual"}:
         raise RequestError(400, "알 수 없는 실행 모드")
     if mode not in allowed_modes():
-        raise RequestError(403, "시연 미러에서는 live 모드를 사용할 수 없습니다")
-    source = _one(form, "source") or "bundle"
-    if source == "bundle":
-        bid = _one(form, "bundle_id")
-        if bid not in bundles:
-            raise RequestError(400, "합성 묶음을 선택하십시오")
-        docs = [Document(d["document_id"], d["revision"], d["text"], doc_type=d["doc_type"])
-                for d in bundles[bid]["documents"]]
-        return Inputs(mode, bid, docs)
-    if source != "paste":
-        raise RequestError(400, "알 수 없는 입력 방식")
-    if mode == "gold-echo":
-        raise RequestError(400, "정답 대입 모드는 합성 묶음에서만 쓸 수 있습니다. 직접 입력은 수동 입력 모드로 진행하십시오")
-    docs, pasted = [], {}
-    for doc_id, doc_type, _ in DOC_SLOTS:
-        text = (_one(form, f"doc_{doc_id}") or "").replace("\r\n", "\n")
-        if text.strip():
-            if len(text) > MAX_DOCUMENT_CHARS:
-                raise RequestError(400, "문서 길이 제한 초과")
-            pasted[doc_id] = text
-            docs.append(Document(doc_id, 1, text, doc_type=doc_type,
-                                 origin="synthetic" if is_deploy() else "internal"))
-    if not docs:
-        raise RequestError(400, "문서 원문을 하나 이상 입력하십시오")
-    return Inputs(mode, None, docs, pasted)
-
-
-def understand(inputs: Inputs, bundles: dict[str, dict]):
-    if inputs.mode == "gold-echo":
-        transport = gold_echo_transport(bundles[inputs.bundle_id])
-        cfg = EndpointConfig(model="gold-echo", per_document=True)
-    elif inputs.mode == "manual":
-        transport, cfg = manual_transport, EndpointConfig(model="manual", per_document=True)
-    else:
-        if is_deploy():  # parse_inputs가 이미 막지만 이중으로 막는다
-            raise RequestError(403, "시연 미러에서는 live 모드를 사용할 수 없습니다")
-        transport, cfg = None, EndpointConfig.from_env()
-    return DocumentUnderstanding(cfg, transport=transport).understand(inputs.documents)
+        raise RequestError(403, "시연 미러에서는 모델 호출(live) 모드를 사용할 수 없습니다")
+    return mode
 
 
 # --------------------------------------------------------------------------
-# 응답
+# 문서 이해 (기존 DocumentUnderstanding 그대로)
 # --------------------------------------------------------------------------
+def manual_transport(url, body, headers, timeout):
+    raise UnderstandingError("수동 입력 모드(모델 미호출)")
+
+
+def understand(docs: list[DocInfo], mode: str) -> UnderstandingResult:
+    documents = [d.document() for d in docs]
+    if mode == "manual":
+        return DocumentUnderstanding(EndpointConfig(model="manual"), transport=manual_transport).understand(documents)
+    if is_deploy():  # parse_mode가 이미 막지만 이중으로 막는다
+        raise RequestError(403, "시연 미러에서는 모델 호출(live) 모드를 사용할 수 없습니다")
+    return DocumentUnderstanding(EndpointConfig.from_env()).understand(documents)
+
+
+def _sign(data: bytes) -> str:
+    return hmac.new(_STATE_KEY, data, hashlib.sha256).hexdigest()
+
+
+def encode_result(result: UnderstandingResult) -> str:
+    raw = json.dumps(result.to_dict(), ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii") + "." + _sign(raw)
+
+
+def decode_result(value: str | None) -> UnderstandingResult:
+    """live 결과는 다시 호출하지 않고 서명된 양식 값에서 복원한다(후보 변조 방지)."""
+    try:
+        b64, sig = (value or "").rsplit(".", 1)
+        raw = base64.b64decode(b64, validate=True)
+    except ValueError:
+        raise RequestError(400, "추출 결과 상태가 없습니다. 처음부터 다시 진행하십시오") from None
+    if not hmac.compare_digest(_sign(raw), sig):
+        raise RequestError(400, "추출 결과 상태가 만료되었거나 바뀌었습니다. 처음부터 다시 진행하십시오")
+    d = json.loads(raw.decode("utf-8"))
+    refs = lambda xs: [SourceRef(**x) for x in xs]  # noqa: E731
+    return UnderstandingResult(
+        d["schema_version"], d["extractor_version"], d["component_status"],
+        [CandidateFact(**{**c, "source_refs": refs(c["source_refs"])}) for c in d["candidates"]],
+        [EvidenceAssessment(**{**e, "source_refs": refs(e["source_refs"])}) for e in d["evidence"]],
+        [ReviewQuestion(**{**q, "source_refs": refs(q["source_refs"])}) for q in d["questions"]],
+        d["rejected"], d["run_record"])
+
+
+# --------------------------------------------------------------------------
+# 표시 도우미
+# --------------------------------------------------------------------------
+e = html.escape
+
+
 @dataclass
 class Response:
     status: int
@@ -228,334 +359,580 @@ def _resp(status: int, body: str | bytes, ctype: str = "text/html; charset=utf-8
                ("X-Robots-Tag", ROBOTS), ("X-Content-Type-Options", "nosniff"),
                ("Referrer-Policy", "no-referrer"), ("Cache-Control", "no-store"),
                ("Content-Security-Policy",
-                "default-src 'self'; style-src 'self'; img-src 'self' data:; "
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
                 "form-action 'self'; frame-ancestors 'none'; base-uri 'none'")]
     return Response(status, headers, data)
 
 
-e = html.escape
+def won(v: Any) -> str:
+    return f"{v:,}원" if isinstance(v, int) else str(v)
 
 
-def _one(form: dict[str, list[str]], key: str) -> str | None:
-    v = form.get(key)
-    return v[0] if v else None
+def basis_text(value: str) -> str:
+    bases = rules_meta()["sole_source"]["bases"]
+    if value in bases:
+        return f"{bases[value]['legal_basis']} ({ENUM_KO['sole_source_basis'].get(value, bases[value]['label'])})"
+    return ENUM_KO["sole_source_basis"].get(value, value)
 
 
-def _ko_field(name: str) -> str:
-    return FIELD_KO.get(name, name)
-
-
-def _ko_value(name: str, value: Any) -> str:
-    if name in ENUM_KO and value in ENUM_KO[name]:
-        return ENUM_KO[name][value]
-    if isinstance(value, int) and name.endswith("_krw"):
-        return f"{value:,}원"
+def show_value(name: str, value: Any) -> str:
+    if name == "sole_source_basis":
+        return basis_text(value)
+    if name in ENUM_KO:
+        return ENUM_KO[name].get(value, str(value))
+    if name in {"estimated_price_krw", "total_amount_krw"}:
+        return won(value)
+    if name == "quote_count" and isinstance(value, int):
+        return f"{value}개사"
     return str(value)
 
 
-def _ko_text(text: str) -> str:
-    for k, v in FIELD_KO.items():
-        text = text.replace(f"'{k}'", f"'{v}'")
-    return text
+def evidence_label(key: str) -> str:
+    return EVIDENCE_KO.get(key) or EXTRA_EVIDENCE_KO.get(key, key)
 
 
-def page(title: str, body: str, *, gold: bool = False) -> str:
-    deploy = is_deploy()
-    nav = ('<nav><a href="/">새 검토</a><a href="/runs">실행 기록</a></nav>')
-    gold_html = f'<p class="badge gold">{e(GOLD_BADGE)}</p>' if gold else ""
-    banner = (f'<div class="banner" role="note">{e(BANNER)}</div>' if deploy else
-              '<div class="banner local" role="note">폐쇄망 로컬 실행 · 127.0.0.1 전용</div>')
+def ref_place(ref, docs: dict[str, DocInfo]) -> str:
+    d = docs.get(ref.document_id)
+    if not d:
+        return ref.document_id
+    label = d.name if d.document_id == "T1" else DOC_TYPE_KO.get(d.doc_type, d.doc_type)
+    for page, start, end in d.pages:
+        if start <= ref.text_start < max(end, start + 1):
+            return f"{label} p.{page}"
+    return label
+
+
+def page(title: str, body: str, *, step: int, foot: str = "") -> str:
+    tabs = "".join(
+        f'<span class="tab {"on" if i == step else "done" if i < step else ""}">{n:02d} {e(t)}</span>'
+        for i, (n, t) in enumerate([(1, "문서 입력"), (2, "추출 확인"), (3, "판정 · 근거"), (4, "결과서")]))
+    banner = (f'<div class="banner" role="note">{e(BANNER)}</div>' if is_deploy() else "")
     return f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>{e(title)} · MIL-Check</title>
-<link rel="stylesheet" href="/static/style.css"></head>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script></head>
 <body>{banner}
-<header><span class="brand">MIL-Check</span> <span class="sub">계약 사전검토 웹 MVP</span>{nav}</header>
-<main>{gold_html}{body}</main>
-<footer>사전검토 지원 도구입니다. 적법성을 확정하거나 계약담당공무원의 최종 판단을 대체하지 않습니다.</footer>
+<header class="top"><div class="wrap topin">
+<a class="brand" href="/">MIL-Check <small>수의계약 사전검토 · 시제품</small></a>
+<nav class="tabs" aria-label="진행 단계">{tabs}</nav>
+<div class="topright"><a class="btn ghost" href="/runs">실행 기록</a><a class="btn ghost" href="/">처음부터</a></div>
+</div></header>
+<main class="wrap">{body}</main>
+<footer class="wrap meta">{foot}</footer>
 </body></html>"""
 
 
-STEPS = ["문서 입력", "문서 이해", "담당자 확인", "규칙 판정", "판정·근거", "사전검토 결과서"]
-
-
-def steps(active: int) -> str:
-    items = "".join(f'<li class="{"on" if i <= active else ""}">{e(s)}</li>' for i, s in enumerate(STEPS))
-    return f'<ol class="steps">{items}</ol>'
-
-
 def error_page(status: int, message: str) -> Response:
-    body = f'<h1>요청을 처리할 수 없습니다</h1><p class="err">{e(message)}</p><p><a href="/">처음으로</a></p>'
-    return _resp(status, page("오류", body))
+    body = (f'<section class="card narrow"><h1>요청을 처리할 수 없습니다</h1><p class="err">{e(message)}</p>'
+            f'<p><a class="btn" href="/">처음부터</a></p></section>')
+    return _resp(status, page("오류", body, step=0))
+
+
+def chip(text: str, kind: str = "") -> str:
+    return f'<span class="chip {kind}">{e(text)}</span>'
 
 
 # --------------------------------------------------------------------------
-# 화면 1: 입력
+# 01 문서 입력
 # --------------------------------------------------------------------------
-def index_page(bundles: dict[str, dict]) -> str:
-    modes = "".join(
-        f'<label class="opt"><input type="radio" name="mode" value="{m}"{" checked" if m == "gold-echo" else ""}> '
-        f'{e(MODE_KO[m])}</label>' for m in allowed_modes())
-    rows = []
-    for i, (bid, b) in enumerate(bundles.items()):
-        types = ", ".join(REQ_KO.get(d["doc_type"], dict((t, k) for _, t, k in DOC_SLOTS).get(d["doc_type"], d["doc_type"]))
-                          for d in b["documents"])
-        rows.append(f'<label class="bundle"><input type="radio" name="bundle_id" value="{e(bid)}"'
-                    f'{" checked" if i == 0 else ""}> <b>{e(bid)}</b> {e(b.get("note", ""))}'
-                    f' <span class="muted">({e(types)})</span></label>')
-    paste = "".join(
-        f'<label class="doc">{e(label)} <span class="muted">({e(doc_id)})</span>'
-        f'<textarea name="doc_{doc_id}" rows="3" maxlength="{MAX_DOCUMENT_CHARS}"></textarea></label>'
-        for doc_id, _, label in DOC_SLOTS)
-    deploy_note = ('<p class="muted">시연 미러: 정답 대입·수동 입력만 제공합니다. 외부 LLM·외부 API를 호출하지 않으며 '
-                   'PDF 입력은 꺼져 있습니다.</p>' if is_deploy() else "")
-    return page("문서 입력", f"""{steps(0)}
-<h1>1. 문서 입력</h1>{deploy_note}
-<form method="post" action="/understand">
-<fieldset><legend>실행 모드</legend>{modes}
-<p class="muted">정답 대입 모드는 합성 묶음의 정답을 모델 응답 자리에 넣어 화면 흐름만 보여 줍니다. 모델 성능이 아닙니다.</p></fieldset>
-<fieldset><legend>합성 예시 묶음 (eval/understanding_dev.jsonl)</legend>
-<input type="hidden" name="source" value="bundle">{"".join(rows)}
-<button type="submit">문서 이해 실행</button></fieldset>
-</form>
-<form method="post" action="/understand">
-<fieldset><legend>직접 붙여넣기 (수동 입력 모드)</legend>
+def input_page(message: str = "") -> str:
+    types = "".join(f'<option value="{k}">{e(v[0])}</option>' for k, v in REVIEW_TYPES.items())
+    doc_opts = "".join(f'<option value="{k}">{e(v)}</option>' for k, v in DOC_TYPE_KO.items())
+    modes = allowed_modes()
+    mode_html = (
+        '<input type="hidden" name="mode" value="manual">' if modes == ("manual",) else
+        '<label class="inline"><input type="checkbox" name="mode" value="manual"> AI 추출 없이 수동 입력으로 진행</label>'
+        '<input type="hidden" name="mode" value="live">')
+    deploy_note = ('<p class="note">시연 미러: 외부 LLM을 호출하지 않습니다. 문서를 올리면 원문을 보며 항목을 '
+                   '직접 입력하는 수동 입력 모드로 진행합니다.</p>' if is_deploy() else "")
+    err = f'<p class="alert bad">{e(message)}</p>' if message else ""
+    body = f"""
+<h1>문서 입력</h1>
+<p class="lead">계약 관련 문서(텍스트 PDF)를 올리거나 내용을 직접 입력합니다. 문서 원문은 실행 기록에 저장되지 않습니다.</p>
+{err}{deploy_note}
+<form method="post" action="/extract" enctype="multipart/form-data" id="input-form" data-loading="extract">
+<section class="card row2">
+<div><h2 class="h3">검토 유형 (담당자 선택)</h2><select name="review_type" class="wide">{types}</select></div>
+<p class="muted">물품/용역 구분은 AI가 추출하지 않고 담당자가 정합니다. 현재 범위는 호환성·단독공급 사유 물품 구매입니다.</p>
+</section>
+<div class="grid2">
+<section class="card">
+<h2>문서 업로드</h2>
+<div class="drop" id="drop">
+<div class="dropicon" aria-hidden="true">⇪</div>
+<p class="strong">여기로 파일을 끌어 놓거나 선택</p>
+<p class="muted small">텍스트 PDF 지원 · 스캔본(OCR)·HWP는 현재 미지원</p>
+<label class="btn outline">파일 선택<input type="file" name="files" id="files" accept=".pdf,.txt,application/pdf,text/plain" multiple hidden></label>
+</div>
+<h3 class="h4">올린 문서 · 문서 유형 확인</h3>
+<div id="filelist" class="filelist"><p class="muted small" id="nofile">올린 문서가 없습니다.</p></div>
+<template id="filerow"><div class="filerow"><span class="fname mono"></span><select>{doc_opts}</select></div></template>
+<noscript><p class="muted small">문서 유형은 파일 이름으로 추정합니다(견적·호환·공급·요구).</p></noscript>
+</section>
+<section class="card">
+<h2>내용 직접 입력</h2>
+<p class="muted">문서가 없거나 추가 설명이 있으면 적습니다. 예: 구매 품목, 기존 장비, 단독공급 사유.</p>
 <p class="warn">{e(INPUT_WARNING)}</p>
-<p class="muted">붙여넣은 원문은 저장하지 않습니다. 다음 화면으로 넘어갈 때 브라우저 양식으로만 되돌아갑니다.</p>
-<input type="hidden" name="source" value="paste"><input type="hidden" name="mode" value="manual">
-{paste}<button type="submit">수동 입력으로 진행</button></fieldset>
-</form>""")
+<textarea name="direct_text" rows="12" maxlength="{MAX_DOCUMENT_CHARS}"></textarea>
+</section>
+</div>
+<div class="actionbar">
+<span class="muted" id="summary">문서 0건 · 처리 시간은 문서 수에 따라 달라집니다</span>
+{mode_html}
+<button type="submit" class="btn primary lg">사전검토 시작</button>
+</div>
+</form>
+{loading_overlay("extract")}{loading_overlay("judge")}"""
+    return page("문서 입력", body, step=0)
 
 
-# --------------------------------------------------------------------------
-# 화면 2: 문서 이해 결과 + 담당자 확인
-# --------------------------------------------------------------------------
-def _hidden_inputs(inputs: Inputs) -> str:
-    h = [f'<input type="hidden" name="mode" value="{e(inputs.mode)}">']
-    if inputs.bundle_id:
-        h += ['<input type="hidden" name="source" value="bundle">',
-              f'<input type="hidden" name="bundle_id" value="{e(inputs.bundle_id)}">']
+def loading_overlay(kind: str) -> str:
+    if kind == "extract":
+        title, sub = "문서를 읽고 항목을 추출하는 중", "문서마다 따로 읽은 뒤 서로 대조합니다"
+        if is_deploy():
+            steps = [("문서 텍스트 추출", "텍스트 PDF · 문서 유형별 분리"),
+                     ("수동 입력 준비", "시연 미러 · 외부 LLM 미사용"),
+                     ("증빙 첨부 여부 대조", "규칙 · 문서 유형 기준")]
+        else:
+            steps = [("문서 텍스트 추출", "텍스트 PDF · 문서 유형별 분리"),
+                     ("문서별 사실 후보 추출", f"로컬 LLM ({model_label('live')}) · 출력 형식 고정"),
+                     ("인용 · 수치 · 형식 검수", "규칙 · 원문에 없는 값은 거부"),
+                     ("문서 간 충돌 판정", "규칙 · 정규화 후 비교"),
+                     ("누락 항목 질문 생성", "규칙 · 모델")]
     else:
-        h.append('<input type="hidden" name="source" value="paste">')
-        h += [f'<input type="hidden" name="doc_{e(k)}" value="{e(v)}">' for k, v in inputs.pasted.items()]
-    return "".join(h)
-
-
-def _manual_input(name: str) -> str:
-    spec = FIELD_SPECS[name]
-    if spec["type"] == "enum":
-        opts = "".join(f'<option value="{e(v)}">{e(ENUM_KO.get(name, {}).get(v, v))}</option>'
-                       for v in spec["values"] if v != "unknown")
-        return f'<select name="m:{name}"><option value=""></option>{opts}</select>'
-    kind = "text" if spec["type"] in {"str", "date"} else "text\" inputmode=\"numeric"
-    return f'<input type="{kind}" name="m:{name}" maxlength="200">'
-
-
-def confirm_page(inputs: Inputs, result, bundles: dict[str, dict]) -> str:
-    sheet = review_sheet(result)
-    gold = inputs.mode == "gold-echo"
-    docs = "".join(
-        f'<details><summary>{e(d.document_id)} · {e(dict((t, k) for _, t, k in DOC_SLOTS).get(d.doc_type, d.doc_type))}</summary>'
-        f'<pre>{e(d.text)}</pre></details>' for d in inputs.documents)
-    status_ko = {"ok": "정상", "partial": "일부 후보 거부", "unavailable": "자동 추출 불가 — 수동 입력"}
-    err = result.run_record.get("error")
-
-    rows = []
-    shown = list(dict.fromkeys(list(sheet["fields"]) + [f for f in FIELD_SPECS if f not in sheet["fields"]]))
-    for name in shown:
-        cands = sheet["fields"].get(name, [])
-        conflict = name in sheet["conflicts"]
-        opts = []
-        for i, c in enumerate(cands):
-            src = "; ".join(f'{s["document_id"]}: “{s["quote"]}”' for s in c["sources"])
-            checked = " checked" if (i == 0 and not conflict) else ""
-            opts.append(f'<label class="opt"><input type="radio" name="f:{name}" value="{e(c["fact_id"])}"{checked}> '
-                        f'<b>{e(_ko_value(name, c["value"]))}</b> <span class="muted">{e(src)}</span></label>')
-        none_checked = " checked" if (not cands or conflict) else ""
-        opts.append(f'<label class="opt"><input type="radio" name="f:{name}" value="__manual__"> 직접 입력 '
-                    f'{_manual_input(name)}</label>')
-        opts.append(f'<label class="opt"><input type="radio" name="f:{name}" value=""{none_checked}> '
-                    f'<span class="muted">확정하지 않음</span></label>')
-        cls = "field conflict" if conflict else "field"
-        tag = '<span class="badge warn">충돌 — 선택 필요</span>' if conflict else ""
-        rows.append(f'<div class="{cls}"><div class="fname">{e(_ko_field(name))} {tag}</div>{"".join(opts)}</div>')
-
-    qs = "".join(
-        f'<li><span class="badge">{e({"missing": "누락", "conflict": "충돌", "unsupported": "입증 미확인"}.get(q["reason"], q["reason"]))}</span> '
-        f'{e(_ko_text(q["text"]))}<br><input type="text" name="q:{e(q["question_id"])}" maxlength="300" '
-        f'placeholder="담당자 답변(선택). 답하면 결과서에서 남은 질문에서 빠집니다"></li>'
-        for q in sheet["questions"]) or "<li>없음</li>"
-    ev_hint = {}
-    for ev in sheet["evidence"]:
-        for item in ev["rule_items_to_check"]:
-            ev_hint[item] = f'{REQ_KO.get(ev["requirement_id"], ev["requirement_id"])} {PRESENCE_KO.get(ev["presence"], ev["presence"])}'
-    evid = "".join(
-        f'<label class="opt"><input type="checkbox" name="evidence" value="{e(k)}"> {e(EVIDENCE_KO.get(k, k))}'
-        + (f' <span class="muted">(참고: {e(ev_hint[k])})</span>' if k in ev_hint else "") + "</label>"
-        for k in evidence_keys())
-    presence = ", ".join(f'{REQ_KO.get(x["requirement_id"], x["requirement_id"])} {PRESENCE_KO.get(x["presence"], x["presence"])}'
-                         for x in sheet["evidence"])
-    cat = "".join(f'<option value="{k}"{" selected" if k == "goods" else ""}>{e(v)}</option>' for k, v in CATEGORY_KO.items())
-    prop = "".join(f'<option value="{k}"{" selected" if k == "sole_source" else ""}>{e(v)}</option>' for k, v in PROPOSED_KO.items())
-    extra = "".join(
-        f'<label class="opt">{e(label)} <select name="x:{k}"><option value="">미입력</option>'
-        f'<option value="yes">예</option><option value="no">아니오</option></select></label>'
-        for k, label in EXTRA_BOOL.items())
-    extra += "".join(
-        f'<label class="opt">{e(label)} <select name="x:{k}"><option value="">미입력</option>'
-        + "".join(f'<option value="{e(v)}">{e(t)}</option>' for v, t in values.items()) + "</select></label>"
-        for k, (label, values) in EXTRA_SELECT.items())
-    reviewer = (f'<p>확인자: <b>{e(DEMO_REVIEWER)}</b> <span class="muted">(시연 미러에서는 이름을 받지 않습니다)</span></p>'
-                if is_deploy() else
-                f'<label class="opt">확인자 <input type="text" name="reviewer" value="담당자" maxlength="40" required></label>')
-
-    body = f"""{steps(2)}
-<h1>2. 문서 이해 결과 · 3. 담당자 확인</h1>
-<p>실행 모드: <b>{e(MODE_KO[inputs.mode])}</b>{f" · 묶음 {e(inputs.bundle_id)}" if inputs.bundle_id else ""}
- · 문서 이해 상태: <b>{e(status_ko.get(result.component_status, result.component_status))}</b></p>
-{f'<p class="muted">{e(err)}</p>' if err else ""}
-<p class="note">{e(sheet["note"])} 충돌 필드는 반드시 하나를 고르거나 직접 입력해야 판정으로 넘어갑니다.</p>
-<section><h2>입력 문서</h2>{docs}<p class="muted">첨부 확인(참고 표시): {e(presence) or "없음"}</p></section>
-<form method="post" action="/review">{_hidden_inputs(inputs)}
-<section><h2>사실 후보 확정</h2>{"".join(rows)}</section>
-<section><h2>검토 유형 (담당자 선택)</h2>
-<label class="opt">계약 대상 <select name="contract_category">{cat}</select></label>
-<label class="opt">검토 중인 계약 방식 <select name="proposed_type">{prop}</select></label>
-<label class="opt">부가세 제외 추정가격(원) <input type="text" inputmode="numeric" name="estimated_price_krw_ex_vat" maxlength="20"
- placeholder="부가세 포함·미상이면 직접 입력. 자동 환산하지 않습니다"></label>
-{extra}</section>
-<section><h2>증빙 확인 (담당자 체크로만 인정)</h2><p class="muted">첨부 여부는 참고 표시일 뿐입니다. 내용을 확인한 항목만 체크하십시오.</p>{evid}</section>
-<section><h2>남은 질문</h2><ul class="qs">{qs}</ul></section>
-<section>{reviewer}<button type="submit">규칙 판정 실행</button></section>
-</form>"""
-    return page("담당자 확인", body, gold=gold)
-
-
-def evidence_keys() -> list[str]:
-    """규칙팩이 요구하는 증빙 항목 전체(화면 체크 목록)."""
-    rules = json.loads((ROOT / "data" / "rules.json").read_text(encoding="utf-8"))
-    keys: set[str] = set(EVIDENCE_KO)
-
-    def walk(node, parent=""):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                walk(v, k)
-        elif isinstance(node, list) and "evidence" in parent:
-            keys.update(x for x in node if isinstance(x, str) and x.isidentifier())
-    walk(rules)
-    return sorted(keys, key=lambda k: EVIDENCE_KO.get(k, "힣" + k))
+        title, sub = "규칙 판정과 근거를 정리하는 중", "판정은 규칙 엔진이 합니다"
+        steps = [("담당자 확정값 고정", "확정되지 않은 AI 값은 사용하지 않음"),
+                 ("수의계약 규칙 판정", "규칙 엔진 · 국가계약법 시행령 제26조 기반"),
+                 ("법령 · 유사 계약 근거 검색", "검색 · 현재 계약의 사실을 채우지 않음"),
+                 ("판정 기록 저장", "원문 없이 확인값 · 버전 · 판정만")]
+    items = "".join(f'<li><span class="dot">{i + 1}</span><div><b>{e(a)}</b><small>{e(b)}</small></div></li>'
+                    for i, (a, b) in enumerate(steps))
+    return (f'<div class="overlay" id="loading-{kind}" hidden><section class="card narrow">'
+            f'<div class="lhead"><span class="spinner" aria-hidden="true"></span><div><h2>{e(title)}</h2>'
+            f'<p class="muted">{e(sub)}</p></div></div><ol class="lsteps">{items}</ol></section></div>')
 
 
 # --------------------------------------------------------------------------
-# 화면 3: 판정 결과서
+# 자동 추출 실패 (B1)
+# --------------------------------------------------------------------------
+def failure_page(docs: list[DocInfo], review_type: str, reason: str) -> str:
+    headline = ("모델 응답 시간 초과 — 자동 추출을 중단했습니다" if re.search(r"timed out|시간|timeout", reason, re.I)
+                else "모델 응답 실패 — 자동 추출을 중단했습니다")
+    hidden = (f'<input type="hidden" name="docs" value="{e(encode_docs(docs))}">'
+              f'<input type="hidden" name="review_type" value="{e(review_type)}">')
+    steps = [("ok", "문서 텍스트 추출", "텍스트 PDF · 문서 유형별 분리"),
+             ("fail", "문서별 사실 후보 추출", f"로컬 LLM ({model_label('live')})"),
+             ("", "인용 · 수치 · 형식 검수", "규칙 · 원문에 없는 값은 거부"),
+             ("", "문서 간 충돌 판정", "규칙 · 정규화 후 비교"),
+             ("", "누락 항목 질문 생성", "규칙 · 모델")]
+    items = "".join(f'<li class="{s}"><span class="dot">{"✓" if s == "ok" else "!" if s == "fail" else i + 1}</span>'
+                    f'<div><b>{e(a)}</b><small>{e(b)}</small></div></li>' for i, (s, a, b) in enumerate(steps))
+    body = f"""<section class="card narrow"><h1>자동 추출 실패</h1>
+<p class="muted">모델 장애 시에도 수동 경로로 검토를 계속할 수 있습니다</p><ol class="lsteps">{items}</ol>
+<div class="alert bad"><b>{e(headline)}</b><p class="small mono">{e(reason)}</p>
+<p>AI 없이도 검토를 이어갈 수 있습니다. 항목을 직접 입력하면 같은 규칙 판정과 결과서 경로를 사용합니다.</p>
+<form method="post" action="/extract" class="btnrow" data-loading="extract">{hidden}
+<button class="btn primary" name="mode" value="manual">수동 입력으로 전환</button>
+<button class="btn outline" name="mode" value="live">다시 시도</button></form></div></section>
+{loading_overlay("extract")}"""
+    return page("자동 추출 실패", body, step=0)
+
+
+# --------------------------------------------------------------------------
+# 02 추출 항목 확인
+# --------------------------------------------------------------------------
+def required_evidence(proposed_type: str, category: str) -> list[str]:
+    rules = rules_meta()
+    items = ["price_reasonableness", "vendor_eligibility", "conflict_of_interest_check"]
+    if proposed_type == "sole_source":
+        for name, b in rules["sole_source"]["bases"].items():
+            if (category == "service") == (name == "specific_technical_service"):
+                items += b["required_evidence"]
+        items.append("audit_notification_plan")
+    elif proposed_type == "small_amount":
+        items += ["no_artificial_split_review", "at_least_one_quote", "two_or_more_quotes", "electronic_quote_plan"]
+    elif proposed_type == "urgent_security":
+        items += rules["urgent_security"]["urgent_required_evidence"] + rules["urgent_security"]["security_required_evidence"]
+    return list(dict.fromkeys(items))
+
+
+def _total_hint(result) -> str:
+    est = [c.value for c in result.candidates if c.field == "estimated_price_krw"]
+    tot = [c.value for c in result.candidates if c.field == "total_amount_krw"]
+    if est and tot and any(abs(t - round(p * 1.1)) <= 10 for t in tot for p in est):
+        return "추정가격과 1.1배 관계일 수 있음 — 자동 환산하지 않음"
+    return ""
+
+
+def _field_input(name: str, value: str = "") -> str:
+    if name in ENUM_KO:
+        opts = "".join(f'<option value="{k}"{" selected" if k == value else ""}>{e(show_value(name, k))}</option>'
+                       for k in ENUM_KO[name])
+        return f'<select name="m:{name}" data-field="{name}"><option value="">선택</option>{opts}</select>'
+    mode = ' inputmode="numeric"' if name in INT_FIELDS else ""
+    return (f'<input type="text" name="m:{name}" data-field="{name}" value="{e(value)}" maxlength="200"{mode} '
+            f'placeholder="{"숫자만" if name in INT_FIELDS else "원문을 보고 입력"}">')
+
+
+def confirm_page(docs: list[DocInfo], review_type: str, mode: str, result: UnderstandingResult,
+                 form: dict[str, list[str]] | None = None, message: str = "") -> str:
+    form = form or {}
+    _, category, proposed = REVIEW_TYPES[review_type]
+    dmap = {d.document_id: d for d in docs}
+    manual = mode == "manual" or result.component_status == "unavailable"
+    conflicts = {c.field for c in result.candidates if c.status == "conflicting"}
+    hint = _total_hint(result)
+    rows = []
+    for name, label, use in FIELD_ROWS:
+        cands = [c for c in result.candidates if c.field == name]
+        mval = _one(form, f"m:{name}") or ""
+        if not cands:
+            value_html = _field_input(name, mval)
+            cite = '<span class="muted small mono">수동 입력</span><br>—'
+            status = chip("입력 필요", "warn")
+        elif name in conflicts:
+            chosen = _one(form, f"f:{name}")
+            opts = "".join(
+                f'<label class="pick"><input type="radio" name="f:{name}" value="{e(c.fact_id)}"'
+                f'{" checked" if chosen == c.fact_id else ""} data-conflict="{name}" data-value="{e(str(c.value))}"> <b>{e(show_value(name, c.value))}</b>'
+                f'<small>{e(" · ".join(ref_place(r, dmap) + " “" + r.quote + "”" for r in c.source_refs))}</small></label>'
+                for c in cands)
+            value_html = (f'<p class="err small">문서마다 값이 다릅니다 — 하나를 선택하세요</p>{opts}'
+                          f'<div class="edit">{_field_input(name, mval)}</div>')
+            r0 = cands[0].source_refs[0] if cands[0].source_refs else None
+            cite = (f'<span class="muted small mono">{e(ref_place(r0, dmap))}</span><br>“{e(r0.quote)}”' if r0 else "—")
+            status = chip("충돌", "bad")
+        else:
+            c = cands[0]
+            note = f'<p class="warn small">{e(hint)}</p>' if name == "total_amount_krw" and hint else ""
+            value_html = (f'<input type="hidden" name="f:{name}" value="{e(c.fact_id)}" data-value="{e(str(c.value))}">'
+                          f'<span class="val">{e(show_value(name, c.value))}</span>{note}'
+                          f'<div class="edit">{_field_input(name, mval)}</div>')
+            cite = "<br>".join(f'<span class="muted small mono">{e(ref_place(r, dmap))}</span><br>“{e(r.quote)}”'
+                               for r in c.source_refs[:2]) or "—"
+            status = chip("확인 권장", "warn") if (name == "total_amount_krw" and hint) else chip("AI 후보")
+        rows.append(f'<tr><th scope="row">{e(label)}<small>{e(use)}</small></th><td>{value_html}</td>'
+                    f'<td class="cite">{cite}</td><td>{status}</td></tr>')
+
+    # 규칙 검사용 추정가격
+    est = [c for c in result.candidates if c.field == "estimated_price_krw"
+           and dmap.get(c.source_refs[0].document_id if c.source_refs else "", None)
+           and dmap[c.source_refs[0].document_id].doc_type == "request"]
+    apply_btn = (f'<button type="button" class="btn outline" data-apply-price="{est[0].value}">구매요구서 값 적용</button>'
+                 if len(est) == 1 else
+                 '<button type="button" class="btn outline" data-apply-price="from-manual">추정가격 값 적용</button>')
+    price_val = _one(form, "estimated_price_krw_ex_vat") or ""
+
+    # 질문(수동 모드에서는 항목 누락 질문은 표의 '입력 필요'와 같으므로 뺀다)
+    qs = [q for q in result.questions if not (manual and q.reason == "missing" and q.affected_fields)]
+    q_html = "".join(
+        f'<div class="q"><p>{e(_ko_question(q.text))}</p><input type="text" name="q:{e(q.question_id)}" '
+        f'value="{e(_one(form, "q:" + q.question_id) or "")}" maxlength="300" placeholder="답변 또는 \'해당 없음\'"></div>'
+        for q in qs) or '<p class="muted">추가 질문이 없습니다.</p>'
+
+    # 증빙 확인
+    checked = set(form.get("evidence", []))
+    all_text = "\n".join(d.text for d in docs)
+    ev_rows, covered = [], set()
+    for ev in result.evidence:
+        rid = ev.requirement_id
+        items = EVIDENCE_HINTS.get(rid, [])
+        covered.update(items)
+        mentioned = any(k in all_text for k in REQ_KEYWORDS.get(rid, ()))
+        present = {"present": chip("있음", "ok"), "absent": chip("없음", "bad")}.get(ev.presence, chip("확인 불가"))
+        support = chip("판단 불가") if manual else chip(SUPPORT_KO.get(ev.content_support, ev.content_support),
+                                                     "ok" if ev.content_support == "supported" else "")
+        ev_rows.append(
+            f'<tr><td>{e(EVIDENCE_REQUIREMENTS[rid]["label"])}<small>{e(" · ".join(evidence_label(i) for i in items))}</small></td>'
+            f'<td>{chip("있음", "ok") if mentioned else chip("없음")}</td><td>{present}</td><td>{support}</td>'
+            f'<td><label class="inline"><input type="checkbox" name="evidence" value="req:{rid}"'
+            f'{" checked" if "req:" + rid in checked else ""}> 확인</label></td></tr>')
+    bases_of: dict[str, list[str]] = {}
+    if proposed == "sole_source":
+        for bname, spec in rules_meta()["sole_source"]["bases"].items():
+            for it in spec["required_evidence"]:
+                bases_of.setdefault(it, []).append(bname)
+    for item in required_evidence(proposed, category):
+        if item in covered:
+            continue
+        tag = f' data-bases="{" ".join(bases_of[item])}"' if item in bases_of and len(bases_of[item]) < 4 else ""
+        ev_rows.append(
+            f'<tr{tag}><td>{e(evidence_label(item))}<small>규칙 증빙 항목</small></td><td>—</td><td>—</td><td>—</td>'
+            f'<td><label class="inline"><input type="checkbox" name="evidence" value="{e(item)}"'
+            f'{" checked" if item in checked else ""}> 확인</label></td></tr>')
+    extras = "".join(
+        f'<label class="inline">{e(label)} <select name="x:{k}"><option value="">미확인</option>'
+        + "".join(f'<option value="{v}"{" selected" if _one(form, "x:" + k) == v else ""}>{e(t)}</option>'
+                  for v, t in opts.items()) + "</select></label>"
+        for k, label, opts in EXTRA_FACTS.get(proposed, []))
+
+    reviewer = ("" if is_deploy() else
+                f'<label class="inline">확인자 <input type="text" name="reviewer" value="{e(_one(form, "reviewer") or "담당자")}" '
+                f'maxlength="40" required></label>')
+    lead = ("AI 추출 없이 수동 입력 모드입니다. 같은 규칙 판정 경로를 사용합니다." if manual else
+            "AI가 찾은 값과 원문 위치입니다. 수정하거나 확인한 값만 판정에 사용됩니다.")
+    if manual and mode == "live":
+        lead = "자동 추출을 사용할 수 없어 수동 입력으로 전환했습니다. 같은 규칙 판정 경로를 사용합니다."
+    doc_list = "".join(
+        f'<details><summary>{e(DOC_TYPE_KO.get(d.doc_type, d.doc_type))} · <span class="mono">{e(d.name)}</span>'
+        f'{f" · {len(d.pages)}쪽" if d.pages else ""}</summary><pre>{e(d.text)}</pre></details>' for d in docs)
+    state = (f'<input type="hidden" name="docs" value="{e(encode_docs(docs))}">'
+             f'<input type="hidden" name="review_type" value="{e(review_type)}">'
+             f'<input type="hidden" name="mode" value="{e("manual" if manual else "live")}">'
+             + ("" if manual else f'<input type="hidden" name="result" value="{e(encode_result(result))}">'))
+    err = f'<p class="alert bad">{e(message)}</p>' if message else ""
+    body = f"""
+<div class="titlerow"><div><h1>추출 항목 확인</h1><p class="lead">{e(lead)}</p></div>
+<div class="legend">{chip("AI 후보")}{chip("충돌 · 선택 필요", "bad")}{chip("확인 권장", "warn")}{chip("담당자 확정", "ok")}</div></div>
+{err}
+<form method="post" action="/review" id="confirm-form" data-loading="judge">{state}
+<section class="card flush"><table class="grid fields"><thead><tr><th>항목</th><th>값</th><th>원문 인용</th><th>상태</th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table></section>
+<section class="card"><h2 class="h3">원문 보기</h2><p class="muted small">원문은 저장하지 않습니다. 화면 안에서만 대조용으로 표시합니다.</p>{doc_list}</section>
+<div class="grid2">
+<section class="card"><h2>규칙 검사용 추정가격 <small>(부가세 제외 · 담당자 입력)</small></h2>
+<p class="muted">부가세 포함 금액을 1.1로 자동 환산하지 않습니다. 규칙 판정에는 아래에 확정한 값만 사용합니다.</p>
+<div class="inputrow"><input type="text" inputmode="numeric" name="estimated_price_krw_ex_vat" id="price" value="{e(price_val)}" placeholder="숫자만 입력 (원)" maxlength="20">{apply_btn}</div></section>
+<section class="card"><h2>{"누락 질문" if manual else "AI 누락 질문"}</h2>{q_html}</section>
+</div>
+<section class="card flush"><div class="pad"><h2>증빙 확인</h2>
+<p class="muted">"문서에 적혀 있음", "파일이 있음", "내용이 입증함", "담당자가 확인함"을 구분합니다. 판정에는 담당자 확인만 반영됩니다.</p></div>
+<table class="grid"><thead><tr><th>증빙</th><th>문서에 언급</th><th>파일 있음</th><th>내용 입증 (AI 참고)</th><th>담당자 확인</th></tr></thead>
+<tbody>{"".join(ev_rows)}</tbody></table>
+{f'<div class="pad extras"><h3 class="h4">담당자 판단 사실</h3>{extras}</div>' if extras else ""}</section>
+<div class="actionbar sticky">
+<label class="inline"><input type="checkbox" name="ack" value="1" id="ack"{" checked" if _one(form, "ack") else ""}> 표시된 값을 원문과 대조해 확인했습니다. 확인한 값만 규칙 판정에 사용됩니다.</label>
+{reviewer}<span class="err small" id="remaining"></span>
+<button type="button" class="btn outline" id="toggle-edit">수정</button>
+<button type="submit" class="btn primary lg" id="judge">확인 · 규칙 판정</button>
+</div>
+</form>
+{loading_overlay("judge")}"""
+    foot = f'모드: {"수동 입력" if manual else "AI 추출 + 담당자 확인"} · 모델 {e(model_label("manual" if manual else "live"))}'
+    return page("추출 항목 확인", body, step=1, foot=foot)
+
+
+def _ko_question(text: str) -> str:
+    for k, v in FIELD_LABEL.items():
+        text = text.replace(f"'{k}'", f"'{v}'")
+    for name, values in ENUM_KO.items():  # 충돌 질문의 원시 값("vat_included")을 한국어로
+        for k, v in values.items():
+            text = text.replace(f'"{k}"', f'"{v}"')
+    return text
+
+
+# --------------------------------------------------------------------------
+# 확인값 → Confirmation
 # --------------------------------------------------------------------------
 def _parse_int(raw: str, label: str) -> int:
-    s = raw.replace(",", "").replace("원", "").strip()
+    s = raw.replace(",", "").replace("원", "").replace("개사", "").replace("개", "").strip()
     if not s.isdigit():
         raise ConfirmationError(f"{label}: 숫자만 입력하십시오")
     return int(s)
 
 
-def build_confirmation(form: dict[str, list[str]], result) -> Confirmation:
+def build_confirmation(form: dict[str, list[str]], result: UnderstandingResult, review_type: str) -> Confirmation:
+    if not _one(form, "ack"):
+        raise ConfirmationError("표시된 값을 원문과 대조해 확인했다는 체크가 필요합니다")
+    _, category, proposed = REVIEW_TYPES[review_type]
     fields: dict[str, dict[str, Any]] = {}
-    for name in FIELD_SPECS:
-        choice = _one(form, f"f:{name}")
-        if not choice:
-            continue
-        if choice == "__manual__":
-            raw = (_one(form, f"m:{name}") or "").strip()
-            if not raw:
-                raise ConfirmationError(f"{_ko_field(name)}: 직접 입력 값이 비어 있습니다")
-            spec = FIELD_SPECS[name]
-            if spec["type"] in {"int", "int_krw"}:
-                value: Any = _parse_int(raw, _ko_field(name))
-            elif spec["type"] == "enum":
-                if raw not in spec["values"]:
-                    raise ConfirmationError(f"{_ko_field(name)}: 허용되지 않은 값")
+    for name, label, _ in FIELD_ROWS:
+        raw = (_one(form, f"m:{name}") or "").strip()
+        if raw:  # 담당자가 직접 입력(수정)한 값이 후보보다 우선
+            if name in INT_FIELDS:
+                value: Any = _parse_int(raw, label)
+            elif name in ENUM_KO:
+                if raw not in ENUM_KO[name]:
+                    raise ConfirmationError(f"{label}: 허용되지 않은 값")
                 value = raw
             else:
                 value = raw[:200]
             fields[name] = {"manual": value}
-        else:
-            fields[name] = {"fact_id": choice}
+        elif _one(form, f"f:{name}"):
+            fields[name] = {"fact_id": _one(form, f"f:{name}")}
     price_raw = (_one(form, "estimated_price_krw_ex_vat") or "").strip()
-    price = _parse_int(price_raw, "부가세 제외 추정가격") if price_raw else None
+    if not price_raw:
+        raise ConfirmationError("규칙 검사용 추정가격(부가세 제외)을 입력하십시오")
+    price = _parse_int(price_raw, "부가세 제외 추정가격")
+    allowed = set(required_evidence(proposed, category))
+    evidence: list[str] = []
+    for x in form.get("evidence", []):
+        if x.startswith("req:") and x[4:] in EVIDENCE_HINTS:
+            evidence += EVIDENCE_HINTS[x[4:]]
+        elif x in allowed:
+            evidence.append(x)
     extra: dict[str, Any] = {}
-    for k in EXTRA_BOOL:
+    for k, _, opts in EXTRA_FACTS.get(proposed, []):
         v = _one(form, f"x:{k}")
-        if v in {"yes", "no"}:
-            extra[k] = v == "yes"
-    for k, (_, values) in EXTRA_SELECT.items():
-        v = _one(form, f"x:{k}")
-        if v in values:
-            extra[k] = v
-    answered = {}
+        if v in opts:
+            extra[k] = (v == "yes") if k in BOOL_EXTRAS else v
     valid_q = {q.question_id for q in result.questions}
-    for key, vals in form.items():
-        if key.startswith("q:") and key[2:] in valid_q and vals and vals[0].strip():
-            answered[key[2:]] = vals[0].strip()[:300]
-    evidence = [x for x in form.get("evidence", []) if x in set(evidence_keys())]
+    answered = {k[2:]: v[0].strip()[:300] for k, v in form.items()
+                if k.startswith("q:") and k[2:] in valid_q and v and v[0].strip()}
     reviewer = DEMO_REVIEWER if is_deploy() else (_one(form, "reviewer") or "").strip()[:40]
-    return Confirmation(reviewer=reviewer, contract_category=_one(form, "contract_category") or "",
-                        proposed_type=_one(form, "proposed_type") or "", fields=fields,
-                        estimated_price_krw_ex_vat=price, evidence_checked=evidence,
+    return Confirmation(reviewer=reviewer, contract_category=category, proposed_type=proposed,
+                        fields=fields, estimated_price_krw_ex_vat=price, evidence_checked=evidence,
                         extra_case=extra, answered_questions=answered)
 
 
-DECISION_CLASS = {"PASS_WITH_CONTROLS": "pass", "NEEDS_EVIDENCE": "warn", "REJECT_GROUND": "bad",
-                  "OUT_OF_SCOPE": "info", "NEEDS_INPUT": "info"}
+# --------------------------------------------------------------------------
+# 03 판정 · 근거 / 04 결과서
+# --------------------------------------------------------------------------
+def grounding_ok(review: dict[str, Any]) -> bool:
+    """근거 원문·적용 버전 확인: 규칙 기준일과 현행 근거 원문이 있어야 확정본 발행 가능."""
+    return bool(review.get("rules_current_as_of")) and any(
+        s.get("status") == "현행" and s.get("excerpt") for s in review.get("retrieved_sources", []))
 
 
-def report_page(report: dict[str, Any], mode: str) -> str:
+def rule_rows(report: dict[str, Any]) -> list[tuple[str, str, str, str, str]]:
+    """(검사 항목, 결과, 결과 색, 근거 첫 줄, 근거 둘째 줄) — 모두 규칙 엔진 출력에서 그대로 옮긴다."""
     r = report["review"]
-    df = report["document_findings"]
-    gold = mode == "gold-echo"
-    md = render_markdown(report)
-    if gold:
-        md = f"> {GOLD_BADGE}\n\n" + md
-    findings = "".join(
-        f'<tr><td><span class="sev {e(f["severity"])}">{e(SEVERITY_KO.get(f["severity"], f["severity"]))}</span></td>'
-        f'<td>{e(f["message"])}</td><td>{e(f["legal_basis"])}</td><td><code>{e(f["code"])}</code></td></tr>'
-        for f in r["findings"])
-    missing = "".join(f"<li>{e(EVIDENCE_KO.get(m, m))}</li>" for m in r["missing_evidence"]) or "<li>없음</li>"
-    controls = "".join(f"<li>{e(c)}</li>" for c in r["controls"]) or "<li>없음</li>"
-    prov = "".join(
-        f'<li>{e(_ko_field(p["field"]))}: {e(SOURCE_KO.get(p["source"], p["source"]))}'
-        + (f' (문서 {e(", ".join(p.get("documents", [])))})' if p.get("documents") else "") + "</li>"
-        for p in report["provenance"]) or "<li>없음</li>"
-    signals = "".join(
-        f'<li>{e(s["message"]) if isinstance(s, dict) and "message" in s else e(str(s))}</li>'
-        for s in r.get("advisory", {}).get("signals", [])) or "<li>없음</li>"
-    sources = "".join(
-        f'<li>{e(s.get("title") or "")} <span class="muted">{e(s.get("source_date") or "일자 미상")}</span></li>'
-        for s in r.get("retrieved_sources", [])[:5]) or "<li>없음</li>"
-    openq = "".join(f"<li>{e(_ko_text(q['text']))}</li>" for q in df["open_questions"]) or "<li>없음</li>"
+    case = report["confirmed_case"]
+    src = next((s for s in r.get("retrieved_sources", []) if s.get("status") == "현행"), None)
+    rows = []
+    for f in r["findings"]:
+        text, kind = SEVERITY_BADGE.get(f["severity"], (f["severity"], ""))
+        rows.append((FINDING_KO.get(f["code"], f["code"]), text, kind, f["legal_basis"], f["message"]))
+    missing = r["missing_evidence"]
+    rows.append(("필수 증빙 (담당자 확인)", "보완 필요" if missing else "충족", "warn" if missing else "ok",
+                 "규칙 세트의 유형별 필요 증빙 기준",
+                 ("미확인: " + ", ".join(evidence_label(m) for m in missing)) if missing else
+                 "필요 증빙 모두 담당자 확인"))
+    price = case.get("estimated_price_krw_ex_vat")
+    rows.append(("금액 입력 확인", "충족" if isinstance(price, int) else "확인 불가",
+                 "ok" if isinstance(price, int) else "bad",
+                 "담당자 확정 추정가격(부가세 제외) 사용 · 자동 환산 없음", f"확정값 {won(price)}" if price else "확정값 없음"))
+    ok = grounding_ok(r)
+    rows.append(("근거 원문 · 적용 버전", "충족" if ok else "확인 불가", "ok" if ok else "bad",
+                 f"규칙 기준일 {r.get('rules_current_as_of') or '미상'} 대조",
+                 (f"{src['title']} ({src.get('source_date') or '일자 미상'}, {src['status']})" if src
+                  else "조문 원문 또는 시행일 정보를 확인하지 못함")))
+    return rows
+
+
+def _table(rows) -> str:
+    return "".join(f'<tr><th scope="row">{e(a)}</th><td>{chip(b, k)}</td><td>{e(c)}<small>{e(d)}</small></td></tr>'
+                   for a, b, k, c, d in rows)
+
+
+def a4_document(report: dict[str, Any], docs: list[DocInfo], review_type: str, result: UnderstandingResult,
+                kind: str, created: str) -> str:
+    """07 출력 결과서(A4) 또는 보완 요청서. 화면 미리보기와 인쇄가 같은 마크업을 쓴다."""
+    r = report["review"]
+    case = report["confirmed_case"]
+    title_txt, color, _ = DECISION_VIEW.get(r["decision"], (r["decision"], "muted", ""))
+    dmap = {d.document_id: d for d in docs}
+    cand = {c.fact_id: c for c in result.candidates}
+    type_label = REVIEW_TYPES[review_type][0]
+    doc_count = f'{len(docs)}건 ({"·".join(DOC_TYPE_KO.get(d.doc_type, d.doc_type) for d in docs)})'
+    ok = grounding_ok(r)
+    badge = "초안 · 확정 불가" if not ok else "초안 · 담당자 서명 전"
+    head = (f'<div class="a4head"><div class="mono small">문서번호 {e(report["report_no"])}<br>생성일시 {e(created)}</div>'
+            f'<span class="stamp" data-stamp>{e(badge)}</span></div>')
+    info = (f'<table class="kv"><tr><th>검토 유형</th><td>{e(type_label)}</td><th>입력 문서</th><td>{e(doc_count)}</td></tr>'
+            f'<tr><th>품명</th><td colspan="3">{e(str(case.get("item_name") or "-"))}</td></tr>'
+            f'<tr><th>추정가격</th><td colspan="3">{e(won(case.get("estimated_price_krw_ex_vat")))} (부가세 제외, 담당자 입력)</td></tr></table>')
+    if kind == "supplement":
+        req = [f"- {e(evidence_label(m))} 제출 또는 확인 자료" for m in r["missing_evidence"]]
+        req += [f"- {e(q['text'])}" for q in report["document_findings"]["open_questions"]]
+        req += [f"- {e(f['message'])}" for f in r["findings"] if f["severity"] in {"warning", "critical"}]
+        body = (f'<h1 class="a4title">수의계약 사전검토 보완 요청서</h1><p class="a4sub">MIL-Check 사전검토 보조 결과 · 최종 결정 문서 아님</p>'
+                f'{info}<div class="result {color}"><span>규칙 검사 결과</span><b>{e(title_txt)}</b></div>'
+                f'<ol class="plain"><li>보완 요청 사항<br>{"<br>".join(req) or "- 없음"}</li>'
+                f'<li>근거<br>- {e(r["legal_ground"])} · 규칙 기준일 {e(str(r.get("rules_current_as_of")))}</li>'
+                f'<li>회신 기한: [담당자 지정]</li></ol>')
+    else:
+        prov_rows = []
+        for p in report["provenance"]:
+            name = p["field"]
+            if name == "estimated_price_krw_ex_vat":
+                prov_rows.append(("추정가격 (부가세 제외)", won(case.get(name)), "담당자 입력", "담당자 입력"))
+                continue
+            c = cand.get(p.get("fact_id")) if p["source"] == "candidate" else None
+            value = c.value if c else report.get("confirmed_values", {}).get(name)
+            place = " · ".join(ref_place(x, dmap) for x in c.source_refs) if c else "원문 대조 후 직접 입력"
+            prov_rows.append((FIELD_LABEL.get(name, name), show_value(name, value) if value is not None else "-",
+                              place, "AI 후보 확인" if c else "담당자 입력"))
+        prov = "".join(f"<tr><td>{e(a)}</td><td>{e(b)}</td><td>{e(c)}</td><td>{e(d)}</td></tr>" for a, b, c, d in prov_rows)
+        rules_tbl = "".join(f'<tr><td>{e(a)}</td><td class="{k}">{e(b)}</td><td>{e(c)} · {e(d)}</td></tr>'
+                            for a, b, k, c, d in rule_rows(report))
+        ev_presence = report["document_findings"]["evidence_presence"]
+        checked = set(case.get("evidence", []))
+        ev_tbl = "".join(
+            f'<tr><td>{e(EVIDENCE_REQUIREMENTS[rid]["label"])}</td>'
+            f'<td>{"○" if ev_presence.get(rid) == "present" else "×"}</td>'
+            f'<td>{"○" if all(i in checked for i in EVIDENCE_HINTS.get(rid, [])) else "미확인"}</td></tr>'
+            for rid in EVIDENCE_REQUIREMENTS)
+        signals = " · ".join(s.get("message", str(s)) if isinstance(s, dict) else str(s)
+                             for s in r.get("advisory", {}).get("signals", [])) or "없음"
+        answers = report["document_findings"]["answered_questions"]
+        qtext = {q.question_id: q.text for q in result.questions}
+        ans = " / ".join(f"{_ko_question(qtext.get(k, k))} — {v}" for k, v in answers.items()) or "없음"
+        body = (f'<h1 class="a4title">수의계약 사전검토 결과서</h1><p class="a4sub">MIL-Check 사전검토 보조 결과 · 최종 결정 문서 아님</p>'
+                f'<h2>1. 검토 대상</h2>{info}'
+                f'<div class="result {color}"><span>규칙 검사 결과</span><b>{e(title_txt)}</b>'
+                f'<p>{e(r["legal_ground"])}. 담당자가 확정한 입력값에 대한 규칙 검사 결과이며, 계약 체결 여부는 검토 담당자가 결정합니다.</p></div>'
+                f'<h2>2. 담당자 확정 입력값</h2><table class="lined"><tr><th>항목</th><th>확정값</th><th>출처 (문서 · 쪽)</th><th>확정 방식</th></tr>{prov}</table>'
+                f'<h2>3. 규칙별 검사 결과와 근거</h2><table class="lined"><tr><th>검사 항목</th><th>결과</th><th>근거 (법령 · 문서 인용)</th></tr>{rules_tbl}</table>'
+                f'<h2>4. 증빙 확인</h2><table class="lined"><tr><th>증빙</th><th>파일 있음</th><th>담당자 확인</th></tr>{ev_tbl}</table>'
+                + (f'<p class="small">통제 조건: {e(" · ".join(r["controls"]))}</p>' if r["controls"] else "")
+                + f'<h2>5. 참고 사항 <small>(판정에 반영되지 않음)</small></h2><div class="box">'
+                f'<p><b>AI 검토 의견(초안):</b> {e(r.get("llm_summary") or "생성하지 않음 (LLM 미사용)")}</p>'
+                f'<p><b>AI 참고 신호:</b> {e(signals)}</p><p><b>누락 질문 답변:</b> {e(ans)}</p></div>')
     v = report["versions"]
-    body = f"""{steps(5)}
-<h1>사전검토 결과서 {e(report["report_no"])}</h1>
-<section class="decision {DECISION_CLASS.get(r["decision"], "info")}">
-<div class="dlabel">4. 규칙 판정</div>
-<div class="dvalue">{e(DECISION_KO.get(r["decision"], r["decision"]))}</div>
-<div>품명: {e(str(r.get("item_name") or "-"))} · 근거: {e(r["legal_ground"])} · 확인자: {e(report["reviewer"])}</div></section>
-<section><h2>5. 판정·근거</h2>
-<table><thead><tr><th>구분</th><th>점검 내용</th><th>근거</th><th>규칙</th></tr></thead><tbody>{findings}</tbody></table>
-<h3>보완 필요 증빙</h3><ul>{missing}</ul>
-<h3>통제 조건</h3><ul>{controls}</ul>
-<h3>문서 대조</h3><ul>
-<li>담당자가 해소한 충돌: {e(", ".join(_ko_field(f) for f in df["conflicts_resolved"]) or "없음")}</li>
-<li>첨부 확인: {e(", ".join(f"{REQ_KO.get(k, k)} {PRESENCE_KO.get(x, x)}" for k, x in df["evidence_presence"].items()) or "없음")}</li>
-<li>남은 질문<ul>{openq}</ul></li></ul>
-<h3>확정값 출처</h3><ul>{prov}</ul>
-<h3>참고 신호 (판정 변경 불가)</h3><ul>{signals}</ul>
-<h3>검색된 공개 근거</h3><ul>{sources}</ul></section>
-<section><h2>6. 사전검토 결과서 (Markdown)</h2><pre class="md">{e(md)}</pre>
-<p class="muted">버전: 흐름 {e(v["workflow"])} / 문서 이해 {e(v["extractor"])} / 규칙 기준일 {e(str(v["rules_current_as_of"]))} / 모델 {e(str(v["model"]))}
- · 기록 확인값 <code>{e(report["record_sha256"][:16])}…</code></p>
-<p>{e(r["disclaimer"])}</p>
-<p><a href="/runs/{e(report["report_no"])}">실행 기록 보기</a> · <a href="/">새 검토</a></p></section>"""
-    return page(f"결과서 {report['report_no']}", body, gold=gold)
+    sign = ('<div class="a4foot"><div class="mono small">모델 ' + e(report.get("model_label") or str(v["model"])) + " · 규칙 기준일 "
+            + e(str(v["rules_current_as_of"])) + "<br>흐름 " + e(v["workflow"]) + " · 실행 ID " + e(report["report_no"])
+            + "<br>문서 원문은 실행 기록에 저장하지 않음</div>"
+            '<table class="sign"><tr><th>검토 담당자</th><th>확인일</th></tr><tr><td></td><td></td></tr></table></div>'
+            '<p class="small muted">본 결과서는 담당자의 검토를 돕는 보조 자료입니다.'
+            + (" 시연 미러에서 생성된 문서이며 실제 계약 정보가 아닙니다." if is_deploy() else "") + "</p>")
+    return f'<article class="a4" id="doc-{kind}">{head}{body}{sign}</article>'
+
+
+def result_page(report: dict[str, Any], docs: list[DocInfo], review_type: str, mode: str,
+                result: UnderstandingResult, elapsed_ms: int) -> str:
+    r = report["review"]
+    title_txt, color, line = DECISION_VIEW.get(r["decision"], (r["decision"], "muted", ""))
+    ok = grounding_ok(r)
+    signals = "".join(f'<li>{e(s.get("message", str(s)) if isinstance(s, dict) else str(s))}</li>'
+                      for s in r.get("advisory", {}).get("signals", [])) or "<li>없음</li>"
+    sources = "".join(f'<li><b>{e(s.get("title") or "")}</b> <span class="muted small">{e(s.get("source_date") or "일자 미상")} · {e(s.get("status") or "")}</span>'
+                      f'<small>{e((s.get("excerpt") or "")[:160])}</small></li>' for s in r.get("retrieved_sources", [])[:3])
+    created = time.strftime("%Y-%m-%d %H:%M", time.gmtime()) + " UTC"
+    needs = r["decision"] == "NEEDS_EVIDENCE"
+    report_doc = a4_document(report, docs, review_type, result, "report", created)
+    supp_doc = a4_document(report, docs, review_type, result, "supplement", created) if needs else ""
+    block = ('' if ok else '<p class="err small">근거 원문 또는 적용 법령 버전을 확인하지 못해 확정본 발행이 차단됩니다. 초안만 생성할 수 있습니다.</p>')
+    body = f"""
+<section class="decision {color}"><div><span class="dlabel">규칙 검사 결과</span><div class="dvalue">{e(title_txt)}</div>
+<p>{e(line)}</p><p class="small">{e(DECISION_KO.get(r["decision"], ""))} · {e(r["legal_ground"])}</p></div>
+<p class="dnote">{e(FINAL_NOTICE)}</p></section>
+<section class="card flush"><div class="pad"><h2>규칙별 판정과 근거</h2></div>
+<table class="grid"><thead><tr><th>검사 항목</th><th>결과</th><th>근거 (법령 · 문서 인용)</th></tr></thead><tbody>{_table(rule_rows(report))}</tbody></table>
+{f'<div class="pad"><h3 class="h4">통제 조건</h3><ul>{"".join(f"<li>{e(c)}</li>" for c in r["controls"])}</ul></div>' if r["controls"] else ""}
+<div class="pad"><h3 class="h4">검색된 공개 근거 원문</h3><ul class="srcs">{sources or "<li>없음</li>"}</ul></div></section>
+<div class="grid2">
+<section class="card"><div class="cardhead"><h2>AI 검토 의견 (초안)</h2><span class="muted small">인용 검증을 통과한 문장만 표시</span></div>
+<p class="muted">{e(r.get("llm_summary") or ("시연 미러는 외부 LLM을 사용하지 않아 검토 의견을 생성하지 않습니다." if is_deploy() else "로컬 LLM 요약이 설정되지 않아 생성하지 않았습니다."))}</p></section>
+<section class="card"><div class="cardhead"><h2>AI 참고 신호</h2>{chip("판정에 반영되지 않음")}</div><ul>{signals}</ul></section>
+</div>
+<section class="card" id="docgen"><h2>문서 생성 <small>(선택)</small></h2>
+<div class="btnrow"><button type="button" class="btn primary" data-show="report">사전검토 결과서 생성</button>
+{'<button type="button" class="btn outline" data-show="supplement">보완 요청서 생성</button>' if needs else ""}
+<a class="btn outline" href="/runs/{e(report["report_no"])}">실행 기록 보기</a></div>{block}
+<div class="preview" data-doc="report">{report_doc}
+<div class="btnrow"><button type="button" class="btn outline" data-print="report">PDF로 저장</button>
+<button type="button" class="btn primary" data-final="report"{"" if ok else " disabled"}>확정본 발행</button></div></div>
+{f'<div class="preview" data-doc="supplement">{supp_doc}<div class="btnrow"><button type="button" class="btn outline" data-print="supplement">PDF로 저장</button></div></div>' if needs else ""}
+</section>"""
+    v = report["versions"]
+    foot = (f'실행 ID {e(report["report_no"])} · 모델 {e(report.get("model_label") or str(v["model"]))} · 규칙 세트 {e(str(rules_meta().get("schema_version")))}'
+            f' · 법령 기준일 {e(str(v["rules_current_as_of"]))} · 처리 시간 {elapsed_ms / 1000:.1f}초'
+            f' · 모드: {"수동 입력" if mode == "manual" else "AI 추출 + 담당자 확인"}')
+    return page(f"판정 {report['report_no']}", body, step=2, foot=foot)
 
 
 # --------------------------------------------------------------------------
@@ -584,10 +961,11 @@ def runs_page() -> str:
     finally:
         store.close()
     trs = "".join(f'<tr><td><a href="/runs/{e(n)}">{e(n)}</a></td><td>{e(t[:19].replace("T", " "))}</td>'
-                  f'<td>{e(rv)}</td><td>{e(DECISION_KO.get(d, d))}</td></tr>' for n, t, rv, d in rows)
-    table = (f'<table><thead><tr><th>결과서 번호</th><th>시각(UTC)</th><th>확인자</th><th>판정</th></tr></thead>'
-             f'<tbody>{trs}</tbody></table>' if rows else "<p>기록이 없습니다.</p>")
-    return page("실행 기록", f"<h1>실행 기록</h1>{runs_notice()}{table}")
+                  f'<td>{e(rv)}</td><td>{e(DECISION_VIEW.get(d, (d,))[0])}</td></tr>' for n, t, rv, d in rows)
+    table = (f'<table class="grid"><thead><tr><th>결과서 번호</th><th>시각(UTC)</th><th>확인자</th><th>판정</th></tr></thead>'
+             f'<tbody>{trs}</tbody></table>' if rows else '<p class="pad">기록이 없습니다.</p>')
+    return page("실행 기록", f'<h1>실행 기록</h1><section class="card">{runs_notice()}</section>'
+                             f'<section class="card flush">{table}</section>', step=3)
 
 
 def run_detail_page(report_no: str) -> Response:
@@ -597,31 +975,37 @@ def run_detail_page(report_no: str) -> Response:
     finally:
         store.close()
     if not got:
-        return error_page(404, "해당 기록이 없습니다")
+        return error_page(404, "해당 기록이 없습니다" + (f" ({VOLATILE_NOTICE})" if is_deploy() else ""))
     ok = got["integrity_ok"]
-    body = (f'<h1>실행 기록 {e(report_no)}</h1>{runs_notice()}'
-            f'<p>무결성 확인: <b class="{"okc" if ok else "badc"}">{"일치" if ok else "불일치 — 기록이 바뀌었습니다"}</b></p>'
-            f'<pre>{e(json.dumps(got["record"], ensure_ascii=False, indent=2))}</pre>'
-            f'<p><a href="/runs">목록</a></p>')
-    return _resp(200, page(f"기록 {report_no}", body))
+    body = (f'<h1>실행 기록 {e(report_no)}</h1><section class="card">{runs_notice()}'
+            f'<p>무결성 확인: {chip("일치", "ok") if ok else chip("불일치 — 기록이 바뀌었습니다", "bad")}</p></section>'
+            f'<section class="card"><pre>{e(json.dumps(got["record"], ensure_ascii=False, indent=2))}</pre></section>')
+    return _resp(200, page(f"기록 {report_no}", body, step=3))
 
 
 # --------------------------------------------------------------------------
 # 진입점
 # --------------------------------------------------------------------------
-def handle(method: str, path: str, body: bytes = b"") -> Response:
+STATIC = {"/static/style.css": ("style.css", "text/css; charset=utf-8"),
+          "/static/app.js": ("app.js", "text/javascript; charset=utf-8")}
+
+
+def handle(method: str, path: str, body: bytes = b"", content_type: str = "") -> Response:
     """HTTP와 무관한 요청 처리. 모든 응답에 noindex 헤더가 붙는다."""
     path = path.split("?", 1)[0] or "/"
     try:
         if method in {"GET", "HEAD"}:
             if path == "/":
-                return _resp(200, index_page(load_bundles()))
+                return _resp(200, input_page())
+            if path == "/favicon.ico":
+                return _resp(204, b"", "image/x-icon")
             if path == "/healthz":
                 return _resp(200, "ok", "text/plain; charset=utf-8")
             if path == "/robots.txt":
                 return _resp(200, "User-agent: *\nDisallow: /\n", "text/plain; charset=utf-8")
-            if path == "/static/style.css":
-                return _resp(200, (STATIC_DIR / "style.css").read_bytes(), "text/css; charset=utf-8")
+            if path in STATIC:
+                name, ctype = STATIC[path]
+                return _resp(200, (STATIC_DIR / name).read_bytes(), ctype)
             if path == "/runs":
                 return _resp(200, runs_page())
             if path.startswith("/runs/"):
@@ -629,28 +1013,46 @@ def handle(method: str, path: str, body: bytes = b"") -> Response:
             return error_page(404, "없는 페이지입니다")
         if method == "POST":
             if len(body) > MAX_BODY_BYTES:
-                return error_page(413, "요청이 너무 큽니다")
-            form = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
-            bundles = load_bundles()
-            if path == "/understand":
-                inputs = parse_inputs(form, bundles)
-                result = understand(inputs, bundles)
-                return _resp(200, confirm_page(inputs, result, bundles))
-            if path == "/review":
-                inputs = parse_inputs(form, bundles)
-                # 원문은 저장하지 않으므로 같은 입력으로 문서 이해를 다시 수행한다(gold-echo·manual은 결정론적).
-                result = understand(inputs, bundles)
-                conf = build_confirmation(form, result)
-                store = _store()
+                return error_page(413, "요청이 너무 큽니다(문서 합계 4MB 이하)")
+            form, files = parse_form(body, content_type)
+            if path == "/extract":
+                review_type = parse_review_type(form)
+                modes = form.get("mode", [])  # 입력 화면: hidden live + '수동 입력' 체크박스
+                mode = parse_mode({"mode": ["manual" if "manual" in modes else (modes[-1] if modes else "")]})
                 try:
-                    report = run_case(result, conf, get_agent(), store,
-                                      case_id=inputs.bundle_id or "PASTE")
-                finally:
-                    store.close()
-                return _resp(200, report_page(report, inputs.mode))
+                    docs = decode_docs(_one(form, "docs")) if _one(form, "docs") else docs_from_upload(form, files)
+                except RequestError as exc:
+                    if exc.status == 400 and not _one(form, "docs"):
+                        return _resp(400, input_page(str(exc)))
+                    raise
+                result = understand(docs, mode)
+                if mode == "live" and result.component_status == "unavailable":
+                    reason = result.run_record.get("error") or "모델을 사용할 수 없습니다"
+                    return _resp(200, failure_page(docs, review_type, reason))
+                return _resp(200, confirm_page(docs, review_type, mode, result))
+            if path == "/review":
+                started = time.monotonic()
+                review_type = parse_review_type(form)
+                mode = parse_mode(form)
+                docs = decode_docs(_one(form, "docs"))
+                # 수동 모드는 모델 호출이 없어 같은 입력으로 다시 계산한다. live는 서명된 추출 결과를 복원한다.
+                result = understand(docs, "manual") if mode == "manual" else decode_result(_one(form, "result"))
+                try:
+                    conf = build_confirmation(form, result, review_type)
+                    store = _store()
+                    try:
+                        report = run_case(result, conf, get_agent(), store, case_id=None)
+                    finally:
+                        store.close()
+                    # 결과서 표시용(기록 DB에는 들어가지 않음): 담당자가 직접 입력한 값
+                    report["confirmed_values"] = {k: v["manual"] for k, v in conf.fields.items() if "manual" in v}
+                    report["model_label"] = model_label(mode)
+                except ConfirmationError as exc:
+                    return _resp(400, confirm_page(docs, review_type, mode, result, form,
+                                                   f"담당자 확인이 규칙에 맞지 않습니다: {exc}"))
+                elapsed = int((time.monotonic() - started) * 1000)
+                return _resp(200, result_page(report, docs, review_type, mode, result, elapsed))
             return error_page(404, "없는 페이지입니다")
         return error_page(405, "지원하지 않는 요청 방식입니다")
     except RequestError as exc:
         return error_page(exc.status, str(exc))
-    except ConfirmationError as exc:
-        return error_page(400, f"담당자 확인이 규칙에 맞지 않습니다: {exc}. 뒤로 가서 수정하십시오.")

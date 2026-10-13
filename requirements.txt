@@ -1,0 +1,3 @@
+# Vercel 공개 시연 미러 전용: 텍스트 PDF 입력(milcheck.document_input.from_pdf).
+# 폐쇄망 로컬 운영 의존성은 pyproject.toml(dependencies = [])이며, 로컬 PDF 입력은 requirements-input.txt를 쓴다.
+pypdf==6.17.0

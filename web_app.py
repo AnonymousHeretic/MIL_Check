@@ -24,7 +24,7 @@ class Handler(BaseHTTPRequestHandler):
             resp = web.error_page(413, "요청이 너무 큽니다")
         else:
             body = self.rfile.read(length) if length else b""
-            resp = web.handle(method, self.path, body)
+            resp = web.handle(method, self.path, body, self.headers.get("Content-Type") or "")
         self.send_response(resp.status)
         for k, v in resp.headers:
             self.send_header(k, v)
