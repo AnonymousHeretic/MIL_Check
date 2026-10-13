@@ -31,7 +31,7 @@ import secrets
 import tempfile
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
@@ -77,10 +77,14 @@ FIELD_ROWS = [("item_name", "품명", "판정 입력"),
               ("supplier_name", "업체명", "참고"),
               ("quote_count", "견적 수", "판정 입력"),
               ("existing_equipment", "기존 장비", "참고")]
-FIELD_LABEL = {f: label for f, label, _ in FIELD_ROWS}
-INT_FIELDS = {"estimated_price_krw", "total_amount_krw", "quote_count"}
+# 기본 표에 없더라도 후보가 나오면 행을 추가해 확인·충돌 선택을 받는다(FIELD_SPECS 전체 대응).
+EXTRA_FIELD_ROWS = [("quantity", "수량", "참고"), ("unit_price_krw", "단가", "참고"),
+                    ("quote_status", "견적 접수 여부", "참고"), ("delivery_deadline", "납기", "참고")]
+FIELD_LABEL = {f: label for f, label, _ in FIELD_ROWS + EXTRA_FIELD_ROWS}
+INT_FIELDS = {"estimated_price_krw", "total_amount_krw", "quote_count", "quantity", "unit_price_krw"}
 ENUM_KO = {
     "tax_status": {"vat_excluded": "부가세 별도(제외)", "vat_included": "부가세 포함"},
+    "quote_status": {"received": "견적 접수", "planned": "견적 예정", "none": "견적 없음"},
     "sole_source_basis": {"compatibility": "호환성", "patented_no_substitute": "특허·대체품 없음",
                           "original_supplier_direct_service": "제조·공급자 직접 설치·정비",
                           "single_supplier": "단일 업체만 공급",
@@ -160,14 +164,29 @@ def set_agent(agent) -> None:
     _agent = agent
 
 
+def live_config() -> EndpointConfig:
+    """MILCHECK_LLM_* 환경변수 → EndpointConfig. 값이 잘못되면 LLMConfigError(예외 대신 안내·수동 전환)."""
+    try:
+        return EndpointConfig.from_env()
+    except (ValueError, TypeError) as exc:  # int('oops'), json 해석 실패 등
+        raise LLMConfigError(f"LLM 설정 오류({type(exc).__name__}): MILCHECK_LLM_* 환경변수 값을 확인하십시오") from None
+
+
 def model_label(mode: str) -> str:
     if mode == "manual":
         return "LLM 미사용(수동 입력)"
-    return EndpointConfig.from_env().model
+    try:
+        return live_config().model
+    except LLMConfigError:
+        return "설정 오류"
 
 
 def rules_meta() -> dict[str, Any]:
     return json.loads((ROOT / "data" / "rules.json").read_text(encoding="utf-8"))
+
+
+class LLMConfigError(Exception):
+    """LLM 연결 환경변수가 잘못됨. 웹 요청은 500이 아니라 '자동 추출 실패' 화면으로 안내한다."""
 
 
 class RequestError(Exception):
@@ -309,7 +328,31 @@ def understand(docs: list[DocInfo], mode: str) -> UnderstandingResult:
         return DocumentUnderstanding(EndpointConfig(model="manual"), transport=manual_transport).understand(documents)
     if is_deploy():  # parse_mode가 이미 막지만 이중으로 막는다
         raise RequestError(403, "시연 미러에서는 모델 호출(live) 모드를 사용할 수 없습니다")
-    return DocumentUnderstanding(EndpointConfig.from_env()).understand(documents)
+    try:
+        cfg = live_config()
+    except LLMConfigError as exc:
+        reason = str(exc)
+
+        def config_error(url, body, headers, timeout):
+            raise UnderstandingError(reason)
+        # 기존 경로 그대로 '자동 추출 불가' 결과를 만든다 → 실패 화면에서 수동 입력 전환
+        return DocumentUnderstanding(EndpointConfig(model="설정 오류"), transport=config_error).understand(documents)
+    return DocumentUnderstanding(budgeted(cfg, len(documents))).understand(documents)
+
+
+def budgeted(cfg: EndpointConfig, n_docs: int) -> EndpointConfig:
+    """웹 요청 1건의 LLM 총 대기 시간 상한. 문서별 순차 호출이므로 호출당 제한 = 예산 / 호출 수.
+    MILCHECK_WEB_LLM_BUDGET(초)로 정한다. Vercel(VERCEL 환경변수 존재)에서는 함수 실행 제한
+    (vercel.json maxDuration 30초)보다 짧은 25초가 기본이다. 로컬 기본은 제한 없음(기존 동작)."""
+    raw = os.environ.get("MILCHECK_WEB_LLM_BUDGET") or ("25" if os.environ.get("VERCEL") else "")
+    try:
+        budget = int(raw) if raw else 0
+    except ValueError:
+        budget = 0
+    if budget <= 0:
+        return cfg
+    calls = max(1, n_docs if cfg.per_document else 1)
+    return replace(cfg, timeout_seconds=max(1, min(cfg.timeout_seconds, budget // calls)))
 
 
 def _sign(data: bytes) -> str:
@@ -380,7 +423,7 @@ def show_value(name: str, value: Any) -> str:
         return basis_text(value)
     if name in ENUM_KO:
         return ENUM_KO[name].get(value, str(value))
-    if name in {"estimated_price_krw", "total_amount_krw"}:
+    if name in {"estimated_price_krw", "total_amount_krw", "unit_price_krw"}:
         return won(value)
     if name == "quote_count" and isinstance(value, int):
         return f"{value}개사"
@@ -559,6 +602,16 @@ def required_evidence(proposed_type: str, category: str) -> list[str]:
     return list(dict.fromkeys(items))
 
 
+def field_rows(result: UnderstandingResult) -> list[tuple[str, str, str]]:
+    """표에 보일 행: 기본 8개 + 후보가 있는 추가 필드 + (방어) 그 밖에 후보가 있는 모든 필드.
+    충돌 후보가 있는 필드는 반드시 행이 생기므로 담당자가 선택할 수 있다."""
+    present = {c.field for c in result.candidates}
+    rows = list(FIELD_ROWS) + [r for r in EXTRA_FIELD_ROWS if r[0] in present]
+    shown = {r[0] for r in rows}
+    rows += [(f, f, "참고") for f in sorted(present - shown)]
+    return rows
+
+
 def _total_hint(result) -> str:
     est = [c.value for c in result.candidates if c.field == "estimated_price_krw"]
     tot = [c.value for c in result.candidates if c.field == "total_amount_krw"]
@@ -586,7 +639,7 @@ def confirm_page(docs: list[DocInfo], review_type: str, mode: str, result: Under
     conflicts = {c.field for c in result.candidates if c.status == "conflicting"}
     hint = _total_hint(result)
     rows = []
-    for name, label, use in FIELD_ROWS:
+    for name, label, use in field_rows(result):
         cands = [c for c in result.candidates if c.field == name]
         mval = _one(form, f"m:{name}") or ""
         if not cands:
@@ -621,6 +674,8 @@ def confirm_page(docs: list[DocInfo], review_type: str, mode: str, result: Under
     est = [c for c in result.candidates if c.field == "estimated_price_krw"
            and dmap.get(c.source_refs[0].document_id if c.source_refs else "", None)
            and dmap[c.source_refs[0].document_id].doc_type == "request"]
+    # 적용 버튼은 화면에서 현재 확정한 '부가세 여부'가 부가세 별도(제외)일 때만 값을 복사한다(app.js).
+    # 부가세 포함·미상·충돌 미선택이면 복사하지 않고 직접 입력을 안내한다. 서버는 이 입력란 값만 쓴다.
     apply_btn = (f'<button type="button" class="btn outline" data-apply-price="{est[0].value}">구매요구서 값 적용</button>'
                  if len(est) == 1 else
                  '<button type="button" class="btn outline" data-apply-price="from-manual">추정가격 값 적용</button>')
@@ -695,7 +750,7 @@ def confirm_page(docs: list[DocInfo], review_type: str, mode: str, result: Under
 <div class="grid2">
 <section class="card"><h2>규칙 검사용 추정가격 <small>(부가세 제외 · 담당자 입력)</small></h2>
 <p class="muted">부가세 포함 금액을 1.1로 자동 환산하지 않습니다. 규칙 판정에는 아래에 확정한 값만 사용합니다.</p>
-<div class="inputrow"><input type="text" inputmode="numeric" name="estimated_price_krw_ex_vat" id="price" value="{e(price_val)}" placeholder="숫자만 입력 (원)" maxlength="20">{apply_btn}</div></section>
+<div class="inputrow"><input type="text" inputmode="numeric" name="estimated_price_krw_ex_vat" id="price" value="{e(price_val)}" placeholder="숫자만 입력 (원)" maxlength="20">{apply_btn}</div><p class="err small" id="price-msg" role="status"></p></section>
 <section class="card"><h2>{"누락 질문" if manual else "AI 누락 질문"}</h2>{q_html}</section>
 </div>
 <section class="card flush"><div class="pad"><h2>증빙 확인</h2>
@@ -739,7 +794,7 @@ def build_confirmation(form: dict[str, list[str]], result: UnderstandingResult, 
         raise ConfirmationError("표시된 값을 원문과 대조해 확인했다는 체크가 필요합니다")
     _, category, proposed = REVIEW_TYPES[review_type]
     fields: dict[str, dict[str, Any]] = {}
-    for name, label, _ in FIELD_ROWS:
+    for name, label, _ in field_rows(result):
         raw = (_one(form, f"m:{name}") or "").strip()
         if raw:  # 담당자가 직접 입력(수정)한 값이 후보보다 우선
             if name in INT_FIELDS:
@@ -781,17 +836,48 @@ def build_confirmation(form: dict[str, list[str]], result: UnderstandingResult, 
 # --------------------------------------------------------------------------
 # 03 판정 · 근거 / 04 결과서
 # --------------------------------------------------------------------------
+_ARTICLE_RE = re.compile(r"제\d+조(?:제\d+항)?(?:제\d+호)?(?:[가-힣]목)?")
+
+
+def _nospace(text: Any) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def grounding_source(review: dict[str, Any]) -> dict[str, Any] | None:
+    """판정에 적용된 근거 조항(legal_ground)의 현행 원문을 검색 결과에서 찾는다.
+
+    통과 조건(모두): 규칙 기준일이 있음 · 적용 근거에서 법령명과 조항(제n조제n항제n호[n목])을 읽을 수 있음 ·
+    검색 결과 중 상태 '현행' · 원문 발췌 있음 · 시행일이 규칙 기준일 이전 · 제목에 같은 법령명과 같은 조항이 있음.
+    목 단위 조항은 호 단위 원문(예: 제26조제1항제5호가목 → 제26조제1항제5호)까지 인정한다.
+    """
+    asof = str(review.get("rules_current_as_of") or "")
+    ground = _nospace(review.get("legal_ground"))
+    m = _ARTICLE_RE.search(ground)
+    if not asof or not m:
+        return None
+    law, article = ground[:m.start()], m.group(0)
+    articles = [article] + ([article[:-2]] if article.endswith("목") else [])
+    for s in review.get("retrieved_sources", []):
+        title, date = _nospace(s.get("title")), str(s.get("source_date") or "")
+        if s.get("status") != "현행" or not s.get("excerpt") or not date or date > asof:
+            continue
+        if law and law not in title:
+            continue
+        if any(a in title for a in articles):
+            return s
+    return None
+
+
 def grounding_ok(review: dict[str, Any]) -> bool:
-    """근거 원문·적용 버전 확인: 규칙 기준일과 현행 근거 원문이 있어야 확정본 발행 가능."""
-    return bool(review.get("rules_current_as_of")) and any(
-        s.get("status") == "현행" and s.get("excerpt") for s in review.get("retrieved_sources", []))
+    """근거 원문·적용 버전 확인. 적용 조항의 현행 원문이 확인될 때만 확정본 발행 가능."""
+    return grounding_source(review) is not None
 
 
 def rule_rows(report: dict[str, Any]) -> list[tuple[str, str, str, str, str]]:
     """(검사 항목, 결과, 결과 색, 근거 첫 줄, 근거 둘째 줄) — 모두 규칙 엔진 출력에서 그대로 옮긴다."""
     r = report["review"]
     case = report["confirmed_case"]
-    src = next((s for s in r.get("retrieved_sources", []) if s.get("status") == "현행"), None)
+    src = grounding_source(r)
     rows = []
     for f in r["findings"]:
         text, kind = SEVERITY_BADGE.get(f["severity"], (f["severity"], ""))
@@ -809,7 +895,7 @@ def rule_rows(report: dict[str, Any]) -> list[tuple[str, str, str, str, str]]:
     rows.append(("근거 원문 · 적용 버전", "충족" if ok else "확인 불가", "ok" if ok else "bad",
                  f"규칙 기준일 {r.get('rules_current_as_of') or '미상'} 대조",
                  (f"{src['title']} ({src.get('source_date') or '일자 미상'}, {src['status']})" if src
-                  else "조문 원문 또는 시행일 정보를 확인하지 못함")))
+                  else f"적용 조항({r.get('legal_ground') or '미상'})의 현행 원문 또는 시행일을 확인하지 못함")))
     return rows
 
 

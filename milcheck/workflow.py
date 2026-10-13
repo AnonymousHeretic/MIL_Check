@@ -170,13 +170,17 @@ def confirm(result: UnderstandingResult, conf: Confirmation) -> tuple[dict[str, 
 
 
 def _next_report_no(db: sqlite3.Connection) -> str:
+    """오늘 발급된 가장 큰 일련번호 + 1. 반드시 쓰기 잠금(BEGIN IMMEDIATE) 안에서 호출한다(run_case).
+    COUNT가 아니라 MAX를 쓰므로 기록이 지워져도 기존 번호와 겹치지 않는다."""
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    n = db.execute("SELECT COUNT(*) FROM runs WHERE report_no LIKE ?", (f"MC-{today}-%",)).fetchone()[0]
-    return f"MC-{today}-{n + 1:04d}"
+    prefix = f"MC-{today}-"
+    n = db.execute("SELECT MAX(CAST(substr(report_no, ?) AS INTEGER)) FROM runs WHERE report_no LIKE ?",
+                   (len(prefix) + 1, prefix + "%")).fetchone()[0] or 0
+    return f"{prefix}{n + 1:04d}"
 
 
 def open_store(path: str | Path) -> sqlite3.Connection:
-    db = sqlite3.connect(str(path))
+    db = sqlite3.connect(str(path), timeout=30)  # 동시 저장 시 쓰기 잠금을 기다린다
     db.execute("""CREATE TABLE IF NOT EXISTS runs(
         report_no TEXT PRIMARY KEY, created_at TEXT, reviewer TEXT, decision TEXT,
         record_json TEXT, record_sha256 TEXT)""")
@@ -189,9 +193,8 @@ def run_case(result: UnderstandingResult, conf: Confirmation, agent, store: sqli
     case["case_id"] = case_id
     review = agent.review(case)
     open_q = [q for q in result.questions if q.question_id not in conf.answered_questions]
-    report_no = _next_report_no(store)
     report = {
-        "report_no": report_no,
+        "report_no": None,  # 저장 직전 잠금 안에서 발급
         "title": "사전검토 결과서",
         "review": review,
         "confirmed_case": case,
@@ -208,7 +211,7 @@ def run_case(result: UnderstandingResult, conf: Confirmation, agent, store: sqli
                      "model": result.run_record.get("model")},
     }
     record = {  # 원문 없이 확인값만
-        "report_no": report_no, "reviewer": conf.reviewer,
+        "report_no": None, "reviewer": conf.reviewer,
         "documents": result.run_record.get("documents"),
         "llm_request_sha256": result.run_record.get("request_sha256"),
         "llm_response_sha256": result.run_record.get("response_sha256"),
@@ -217,12 +220,28 @@ def run_case(result: UnderstandingResult, conf: Confirmation, agent, store: sqli
         "decision": review["decision"], "findings": [f["code"] for f in review["findings"]],
         "missing_evidence": review["missing_evidence"], "versions": report["versions"],
     }
-    blob = json.dumps(record, ensure_ascii=False, sort_keys=True)
-    sha = hashlib.sha256(blob.encode("utf-8")).hexdigest()
-    with store:
-        store.execute("INSERT INTO runs VALUES(?,?,?,?,?,?)",
-                      (report_no, datetime.now(timezone.utc).isoformat(), conf.reviewer,
-                       review["decision"], blob, sha))
+    # 번호 발급과 저장을 한 쓰기 트랜잭션으로 묶는다. BEGIN IMMEDIATE가 DB 쓰기 잠금을 먼저 잡으므로
+    # 동시 요청은 순서대로 번호를 받는다. 다른 프로세스가 같은 번호를 이미 넣었으면(IntegrityError) 다시 발급.
+    for attempt in range(5):
+        if not store.in_transaction:
+            store.execute("BEGIN IMMEDIATE")
+        try:
+            report_no = _next_report_no(store)
+            record["report_no"] = report["report_no"] = report_no
+            blob = json.dumps(record, ensure_ascii=False, sort_keys=True)
+            sha = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+            store.execute("INSERT INTO runs VALUES(?,?,?,?,?,?)",
+                          (report_no, datetime.now(timezone.utc).isoformat(), conf.reviewer,
+                           review["decision"], blob, sha))
+            store.commit()
+            break
+        except sqlite3.IntegrityError:
+            store.rollback()
+            if attempt == 4:
+                raise
+        except BaseException:
+            store.rollback()
+            raise
     report["record_sha256"] = sha
     return report
 

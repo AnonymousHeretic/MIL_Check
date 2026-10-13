@@ -88,13 +88,27 @@
     document.getElementById("toggle-edit").addEventListener("click", function () {
       document.body.classList.toggle("editing");
     });
+    // 화면에서 현재 확정한 값: 직접 입력 > 선택한 충돌 후보 > 단일 후보
+    function currentValue(field) {
+      var m = form.querySelector("[name='m:" + field + "']");
+      if (m && m.value.trim()) return m.value.trim();
+      var picked = form.querySelector("[name='f:" + field + "']:checked") ||
+        form.querySelector("input[type=hidden][name='f:" + field + "']");
+      return picked ? (picked.dataset.value || "") : "";
+    }
+    // 추정가격 적용: '부가세 여부'가 부가세 별도(제외)로 확정된 경우에만 복사한다(1.1 환산 없음).
     var applyBtn = document.querySelector("[data-apply-price]");
+    var priceMsg = document.getElementById("price-msg");
     if (applyBtn) applyBtn.addEventListener("click", function () {
-      var v = applyBtn.dataset.applyPrice;
-      if (v === "from-manual") {
-        var m = document.querySelector("[name='m:estimated_price_krw']");
-        v = m ? m.value.replace(/[^0-9]/g, "") : "";
+      if (currentValue("tax_status") !== "vat_excluded") {
+        priceMsg.textContent = "부가세 여부가 '부가세 별도(제외)'로 확정된 경우에만 적용할 수 있습니다. " +
+          "부가세 포함·미상이면 부가세 제외 금액을 직접 입력하십시오.";
+        return;
       }
+      priceMsg.textContent = "";
+      var v = applyBtn.dataset.applyPrice;
+      if (v === "from-manual") v = currentValue("estimated_price_krw");
+      v = (v || "").replace(/[^0-9]/g, "");
       if (v) { price.value = v; check(); }
     });
     function check() {

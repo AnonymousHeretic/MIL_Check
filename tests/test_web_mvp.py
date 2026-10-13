@@ -279,5 +279,147 @@ class WebMvpTest(unittest.TestCase):
         self.assertEqual(web._parse_int("1,200원", "x"), 1200)
 
 
+class ReviewFindingsTest(unittest.TestCase):
+    """코드 검사에서 지적된 5가지 문제와 LLM 시간 예산의 회귀 시험."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = mock.patch.dict(os.environ, {"MILCHECK_WEB_DB": str(Path(self.tmp.name) / "w.sqlite")})
+        self.env.start()
+        os.environ.pop("MILCHECK_DEPLOY", None)
+        web.set_agent(FakeAgent())
+
+    def tearDown(self):
+        web.set_agent(None)
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def test_conflict_on_field_outside_default_rows_can_be_resolved(self):
+        req, quo = "구매요구서. 품명: 브래킷. 수량 20개.", "견적서. 수량 30개."
+
+        def llm(url, body, headers, timeout):
+            user = body["messages"][1]["content"]
+            did = re.search(r'"document_id": "(\w+)"', user).group(1)
+            text, q, v = (req, "20개", 20) if did == "T1" else (quo, "30개", 30)
+            st = text.index(q)
+            payload = {"schema_version": SCHEMA_VERSION, "evidence_claims": [], "questions": [], "facts": [
+                {"field": "quantity", "value": v, "source_refs": [
+                    {"document_id": did, "revision": 1, "text_start": st, "text_end": st + len(q), "quote": q}]}]}
+            return json.dumps({"choices": [{"message": {"content": json.dumps(payload, ensure_ascii=False)}}]}).encode()
+        with mock.patch.object(understanding, "http_transport", side_effect=llm):
+            body, ctype = multipart([("review_type", "goods_sole"), ("mode", "live"), ("doctype_0", "quote"),
+                                     ("direct_text", req)], [("견적서.txt", quo.encode())])
+            page = web.handle("POST", "/extract", body, ctype).body.decode()
+        self.assertIn("수량", page)
+        picks = re.findall(r'name="f:quantity" value="(F\w+)"', page)
+        self.assertEqual(len(picks), 2)  # 충돌 후보 2개 모두 선택란이 있다
+        form = {"docs": hidden(page, "docs"), "result": hidden(page, "result"), "review_type": "goods_sole",
+                "mode": "live", "reviewer": "r", "ack": "1", "estimated_price_krw_ex_vat": "1000"}
+        self.assertEqual(review(form)[0], 400)  # 선택 전에는 판정 불가
+        self.assertEqual(review(dict(form, **{"f:quantity": picks[1]}))[0], 200)
+        self.assertEqual(review(dict(form, **{"m:quantity": "25"}))[0], 200)  # 직접 입력으로도 해소
+
+    def test_field_rows_cover_every_conflicting_field(self):
+        res = understanding.UnderstandingResult("v", "v", "ok", [
+            understanding.CandidateFact(f"F{i}", "unknown_field", i, None, [], "v", "conflicting")
+            for i in range(2)], [], [], [], {})
+        self.assertIn("unknown_field", [r[0] for r in web.field_rows(res)])
+
+    def test_bad_llm_env_does_not_raise(self):
+        for env in ({"MILCHECK_LLM_TIMEOUT": "oops"}, {"MILCHECK_LLM_EXTRA_BODY": "{bad"},
+                    {"MILCHECK_LLM_MAX_TOKENS": "x"}):
+            with mock.patch.dict(os.environ, env):
+                self.assertEqual(web.handle("GET", "/").status, 200)
+                status, page = extract([("review_type", "goods_sole"), ("mode", "live"), ("direct_text", REQUEST)])
+                self.assertEqual(status, 200)
+                self.assertIn("자동 추출 실패", page)
+                self.assertIn("LLM 설정 오류", page)
+                self.assertIn("수동 입력으로 전환", page)
+
+    def test_apply_price_button_checks_vat_in_script(self):
+        js = (ROOT / "milcheck/web_static/app.js").read_text(encoding="utf-8")
+        gate = js[js.index("applyBtn.addEventListener"):]
+        gate = gate[:gate.index("});")]
+        self.assertIn('currentValue("tax_status") !== "vat_excluded"', gate)
+        self.assertLess(gate.index("vat_excluded"), gate.index("price.value = v"))
+
+    def test_report_numbers_unique_under_concurrency(self):
+        import threading
+        from milcheck.workflow import Confirmation, open_store, run_case
+        res = web.understand([web.DocInfo("T1", "직접 입력", "request", REQUEST)], "manual")
+        path = Path(self.tmp.name) / "c.sqlite"
+        open_store(path).close()
+        numbers, errors = [], []
+        barrier = threading.Barrier(8)
+
+        def worker():
+            store = open_store(path)
+            try:
+                barrier.wait()
+                rep = run_case(res, Confirmation("r", "goods", "sole_source", estimated_price_krw_ex_vat=1),
+                               FakeAgent(), store)
+                numbers.append(rep["report_no"])
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                store.close()
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(set(numbers)), 8)
+        store = open_store(path)
+        self.assertEqual(store.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 8)
+        # 기록이 지워져도 남은 최대 번호 다음을 발급(COUNT 방식이면 겹침)
+        last = max(numbers)
+        store.execute("DELETE FROM runs WHERE report_no != ?", (last,))
+        store.commit()
+        from milcheck.workflow import _next_report_no
+        self.assertEqual(int(_next_report_no(store)[-4:]), int(last[-4:]) + 1)
+        store.close()
+
+    def test_grounding_requires_matching_current_article(self):
+        src = lambda title, date="2026-06-03", status="현행": {  # noqa: E731
+            "title": title, "status": status, "excerpt": "조문", "source_date": date}
+        base = {"rules_current_as_of": "2026-07-23", "legal_ground": "국가계약법 시행령 제26조제1항제2호"}
+        ok = lambda *s: web.grounding_ok({**base, "retrieved_sources": list(s)})  # noqa: E731
+        self.assertTrue(ok(src("국가계약법 시행령 제26조제1항제2호 경쟁 불성립")))
+        self.assertFalse(ok(src("국가계약법 시행령 제26조제1항제5호가목 소액수의")))  # 무관한 조항
+        self.assertFalse(ok(src("국가계약법 제7조 계약의 방법")))                     # 다른 법령
+        self.assertFalse(ok(src("국가계약법 시행령 제26조제1항제2호", status="역사적")))
+        self.assertFalse(ok(src("국가계약법 시행령 제26조제1항제2호", date="2026-09-01")))  # 기준일 이후
+        self.assertFalse(ok({**src("국가계약법 시행령 제26조제1항제2호"), "excerpt": ""}))
+        self.assertFalse(web.grounding_ok({**base, "legal_ground": "계약 정보 부족 — 추가 입력 필요",
+                                           "retrieved_sources": [src("국가계약법 시행령 제26조제1항제2호")]}))
+        # 목 단위 근거는 호 단위 원문까지 인정
+        self.assertTrue(web.grounding_ok({**base, "legal_ground": "국가계약법 시행령 제26조제1항제5호가목",
+                                          "retrieved_sources": [src("국가계약법 시행령 제26조제1항제5호가목 소액수의")]}))
+        self.assertTrue(web.grounding_ok({**base, "legal_ground": "국가계약법 시행령 제26조제1항제1호가목",
+                                          "retrieved_sources": [src("국가계약법 시행령 제26조제1항제1호 긴급·보안")]}))
+
+    def test_grounding_with_real_agent_sources(self):
+        from milcheck.agent import MilCheckAgent
+        agent = MilCheckAgent(use_ml=False, use_contract_index=False)
+        for proposed, extra in (("sole_source", {"sole_source_basis": "compatibility"}),
+                                ("small_amount", {}), ("urgent_security", {"urgent_security_basis": "urgent"})):
+            rev = agent.review({"item_name": "부품", "contract_category": "goods", "proposed_type": proposed,
+                                "estimated_price_krw_ex_vat": 1_000_000, "evidence": [], **extra})
+            self.assertTrue(web.grounding_ok(rev), (proposed, rev["legal_ground"]))
+
+    def test_llm_time_budget(self):
+        cfg = understanding.EndpointConfig(timeout_seconds=120, per_document=True)
+        with mock.patch.dict(os.environ, {"VERCEL": "1"}):
+            os.environ.pop("MILCHECK_WEB_LLM_BUDGET", None)
+            self.assertEqual(web.budgeted(cfg, 4).timeout_seconds, 6)   # 25초 / 4건
+        with mock.patch.dict(os.environ, {"MILCHECK_WEB_LLM_BUDGET": "60"}):
+            self.assertEqual(web.budgeted(cfg, 2).timeout_seconds, 30)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VERCEL", None)
+            os.environ.pop("MILCHECK_WEB_LLM_BUDGET", None)
+            self.assertEqual(web.budgeted(cfg, 4).timeout_seconds, 120)  # 로컬 기본: 기존 동작
+
+
 if __name__ == "__main__":
     unittest.main()
