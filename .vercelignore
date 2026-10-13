@@ -1,0 +1,25 @@
+# 공개 시연 미러에 올리지 않는 것 (비공개 평가 세트·개발 자료·원본 데이터)
+tests/
+docs/
+runs/
+scripts/
+examples/
+artifacts/
+training/
+.github/
+**/__pycache__/
+*.csv
+eval/*
+!eval/understanding_dev.jsonl
+demo_app.py
+web_app.py
+analyze_audit.py
+build_evalsets.py
+build_index.py
+evaluate_comprehensive.py
+evaluate_robustness.py
+train_models.py
+requirements-input.txt
+requirements-training.txt
+pyproject.toml
+README.md
